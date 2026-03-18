@@ -265,10 +265,11 @@ class AppChatReverse:
                     status = e.details["status"]
                 else:
                     status = getattr(e, "status_code", None)
-                if status == 401:
+                # 401 认证失败和 403 权限错误都需要记录失败
+                if status in (401, 403):
                     try:
                         await TokenService.record_fail(
-                            token, status, "app_chat_auth_failed"
+                            token, status, f"app_chat_error_{status}"
                         )
                     except Exception:
                         pass

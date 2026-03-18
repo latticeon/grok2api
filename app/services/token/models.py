@@ -230,12 +230,16 @@ class TokenInfo(BaseModel):
         """记录失败，达到阈值后自动标记为 expired
         
         Args:
-            status_code: HTTP Status Code (401表示认证失败，0表示空响应等非HTTP错误)
+            status_code: HTTP Status Code 
+                         - 4xx: 客户端错误（认证、权限、请求问题等）
+                         - 0: 空响应等非HTTP错误
             reason: 失败原因
             threshold: 强制失败阈值
         """
-        # 401错误和空响应(0)都计入失败
-        if status_code not in (401, 0):
+        # 4xx 客户端错误和空响应(0)都计入失败
+        # 5xx 服务器错误不计入，因为通常是临时问题
+        is_client_error = 400 <= status_code < 500
+        if not is_client_error and status_code != 0:
             return
 
         self.fail_count += 1

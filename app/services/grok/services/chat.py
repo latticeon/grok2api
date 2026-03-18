@@ -467,6 +467,9 @@ class ChatService:
             except UpstreamException as e:
                 last_error = e
 
+                # 获取错误状态码
+                error_status = e.details.get("status") if e.details else None
+
                 if rate_limited(e):
                     # 配额不足，标记 token 为 cooling 并换 token 重试
                     await token_mgr.mark_rate_limited(token)
@@ -476,7 +479,20 @@ class ChatService:
                     )
                     continue
 
+                # 4xx 客户端错误：记录失败并换 token 重试
+                # 这是兜底方案，确保所有 4xx 错误都会触发 token 切换
+                if error_status and 400 <= error_status < 500:
+                    logger.warning(
+                        f"Token {token[:10]}... client error ({error_status}), "
+                        f"trying next token (attempt {attempt + 1}/{max_token_retries})"
+                    )
+                    await token_mgr.record_fail(
+                        token, status_code=error_status, reason=f"client_error_{error_status}"
+                    )
+                    continue
+
                 if transient_upstream(e):
+                    # 5xx 服务器错误：临时问题，检查是否有备用 token 后换 token 重试
                     has_alternative_token = False
                     for pool_name in ModelService.pool_candidates_for_model(model):
                         if token_mgr.get_token(pool_name, exclude=tried_tokens):
@@ -490,7 +506,7 @@ class ChatService:
                     )
                     continue
 
-                # 非 429 错误，不换 token，直接抛出
+                # 其他未知错误，直接抛出
                 raise
                 
             except EmptyResponseError as e:
