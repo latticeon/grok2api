@@ -18,6 +18,7 @@ from app.core.exceptions import (
     ErrorType,
     UpstreamException,
     StreamIdleTimeoutError,
+    EmptyResponseError,
 )
 from app.services.grok.services.model import ModelService
 from app.services.grok.utils.upload import UploadService
@@ -491,6 +492,22 @@ class ChatService:
 
                 # 非 429 错误，不换 token，直接抛出
                 raise
+                
+            except EmptyResponseError as e:
+                # 空响应，记录失败并换 token 重试
+                logger.warning(
+                    f"Token {token[:10]}... returned empty response, "
+                    f"trying next token (attempt {attempt + 1}/{max_token_retries})"
+                )
+                await token_mgr.record_fail(
+                    token, status_code=0, reason="empty_response"
+                )
+                last_error = UpstreamException(
+                    message="Empty response from upstream",
+                    status_code=502,
+                    details={"error": "empty_response", "token": token[:10]},
+                )
+                continue
 
         # 所有 token 都 429，抛出最后的错误
         if last_error:
@@ -531,6 +548,12 @@ class StreamProcessor(proc_base.BaseProcessor):
         self._tool_partial = ""
         self._tool_calls_seen = False
         self._tool_call_index = 0
+        
+        # 跟踪是否收到了有效内容
+        self._has_content = False
+        
+        # 跟踪是否收到了有效内容
+        self._has_content = False
 
     def _with_tool_index(self, tool_call: Any) -> Any:
         if not isinstance(tool_call, dict):
@@ -765,6 +788,7 @@ class StreamProcessor(proc_base.BaseProcessor):
                     yield self._sse(
                         f"正在生成第{idx}张图片中，当前进度{progress}%\n"
                     )
+                    self._has_content = True
                     continue
 
                 if mr := resp.get("modelResponse"):
@@ -781,6 +805,7 @@ class StreamProcessor(proc_base.BaseProcessor):
                             url, self.token, img_id
                         )
                         yield self._sse(f"{rendered}\n")
+                        self._has_content = True
 
                     if (
                         (meta := mr.get("metadata", {}))
@@ -807,6 +832,7 @@ class StreamProcessor(proc_base.BaseProcessor):
                                     yield self._sse(f"![{title_safe}]({original})\n")
                                 else:
                                     yield self._sse(f"![image]({original})\n")
+                                self._has_content = True
                     continue
 
                 if (token := resp.get("token")) is not None:
@@ -835,17 +861,21 @@ class StreamProcessor(proc_base.BaseProcessor):
 
                     if in_think:
                         yield self._sse(filtered)
+                        self._has_content = True
                         continue
 
                     if self._tool_stream_enabled:
                         for kind, payload in self._handle_tool_stream(filtered):
                             if kind == "text":
                                 yield self._sse(payload)
+                                self._has_content = True
                             elif kind == "tool":
                                 yield self._sse(tool_calls=[payload])
+                                self._has_content = True
                         continue
 
                     yield self._sse(filtered)
+                    self._has_content = True
 
             if self.think_opened:
                 yield self._sse("</think>\n")
@@ -863,6 +893,19 @@ class StreamProcessor(proc_base.BaseProcessor):
                 yield self._sse(finish="stop")
 
             yield "data: [DONE]\n\n"
+            
+            # 检测空响应
+            if not self._has_content:
+                from app.core.exceptions import EmptyResponseError
+                logger.warning(
+                    f"Empty stream response detected for token {self.token[:10]}... (model={self.model})",
+                    extra={"model": self.model, "token": self.token[:10]}
+                )
+                raise EmptyResponseError(
+                    message="Empty stream response from upstream",
+                    token=self.token
+                )
+                
         except asyncio.CancelledError:
             logger.debug("Stream cancelled by client", extra={"model": self.model})
         except StreamIdleTimeoutError as e:
@@ -943,6 +986,8 @@ class CollectProcessor(proc_base.BaseProcessor):
 
     async def process(self, response: AsyncIterable[bytes]) -> dict[str, Any]:
         """Process and collect full response."""
+        from app.core.exceptions import EmptyResponseError
+        
         response_id = ""
         fingerprint = ""
         content = ""
@@ -1065,6 +1110,17 @@ class CollectProcessor(proc_base.BaseProcessor):
             await self.close()
 
         content = self._filter_content(content)
+        
+        # 检测空响应
+        if not content or not content.strip():
+            logger.warning(
+                f"Empty response detected for token {self.token[:10]}... (model={self.model})",
+                extra={"model": self.model, "token": self.token[:10]}
+            )
+            raise EmptyResponseError(
+                message="Empty response from upstream",
+                token=self.token
+            )
 
         # Parse for tool calls if tools were provided
         finish_reason = "stop"

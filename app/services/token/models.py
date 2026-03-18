@@ -227,9 +227,15 @@ class TokenInfo(BaseModel):
         reason: str = "",
         threshold: Optional[int] = None,
     ):
-        """记录失败，达到阈值后自动标记为 expired"""
-        # 仅 401 计入失败
-        if status_code != 401:
+        """记录失败，达到阈值后自动标记为 expired
+        
+        Args:
+            status_code: HTTP Status Code (401表示认证失败，0表示空响应等非HTTP错误)
+            reason: 失败原因
+            threshold: 强制失败阈值
+        """
+        # 401错误和空响应(0)都计入失败
+        if status_code not in (401, 0):
             return
 
         self.fail_count += 1

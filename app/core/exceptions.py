@@ -115,6 +115,14 @@ class StreamIdleTimeoutError(Exception):
         super().__init__(f"Stream idle timeout after {idle_seconds}s")
 
 
+class EmptyResponseError(Exception):
+    """空响应错误 - 用于标记账号返回空内容的情况"""
+
+    def __init__(self, message: str = "Empty response from upstream", token: str = ""):
+        self.token = token
+        super().__init__(message)
+
+
 # ============= 异常处理器 =============
 
 
@@ -233,6 +241,7 @@ __all__ = [
     "AuthenticationException",
     "UpstreamException",
     "StreamIdleTimeoutError",
+    "EmptyResponseError",
     "error_response",
     "register_exception_handlers",
 ]

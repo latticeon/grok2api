@@ -631,7 +631,7 @@ class TokenManager:
 
         Args:
             token_str: Token 字符串
-            status_code: HTTP Status Code
+            status_code: HTTP Status Code (401表示认证失败，0表示空响应等非HTTP错误)
             reason: 失败原因
             threshold: 强制失败阈值
 
@@ -643,7 +643,7 @@ class TokenManager:
         for pool in self.pools.values():
             token = pool.get(raw_token)
             if token:
-                if status_code == 401:
+                if status_code in (401, 0):
                     if threshold is None:
                         threshold = get_config("token.fail_threshold", FAIL_THRESHOLD)
                         try:
