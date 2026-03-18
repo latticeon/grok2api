@@ -85,11 +85,11 @@ class RateLimitsReverse:
                     if "cloudflare" in server_header and "application/json" not in content_type:
                         is_cloudflare = True
                     
-                    # 2. 如果是 401 且返回 JSON 内容包含认证失败关键字，则确认为 Token 过期
-                    if response.status_code == 401 and "application/json" in content_type:
+                    # 2. 如果是 401 或 403 且返回 JSON 内容包含认证失败关键字，则确认为 Token 过期
+                    if response.status_code in (401, 403) and "application/json" in content_type:
                         # 增加 unauthenticated 和 bad-credentials 等更精确的关键字
                         body_lower = resp_text.lower()
-                        auth_error_keywords = ["unauthorized", "not logged in", "unauthenticated", "bad-credentials"]
+                        auth_error_keywords = ["unauthorized", "not logged in", "unauthenticated", "bad-credentials", "bot abuse"]
                         if any(k in body_lower for k in auth_error_keywords):
                             is_token_expired = True
                     # --- 识别逻辑结束 ---

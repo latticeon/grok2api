@@ -592,8 +592,8 @@ class TokenManager:
                 status = e.details.get("status") if e.details else getattr(e, "status_code", None)
                 is_token_expired = e.details.get("is_token_expired", False) if e.details else False
                 
-                if status == 401:
-                    # 只要是 401，都应该记录一次失败，增加 fail_count
+                if status in (401, 403):
+                    # 只要是 401 或 403，都应该记录一次失败，增加 fail_count
                     reason = "rate_limits_auth_failed" if is_token_expired else "rate_limits_auth_unknown"
                     
                     # 如果确认为过期，传入 threshold=1 强制立即失效
