@@ -112,6 +112,7 @@ async function init() {
   if (apiKey === null) return;
   setupEditPoolDefaults();
   setupConfirmDialog();
+  setupModalOverlayClose(); // 弹窗点击外部关闭
   setupSelectAllMenu();
   refreshPageSizeOptionsI18n();
   loadTestModels(); // 加载测试模型列表
@@ -1098,6 +1099,23 @@ function setupConfirmDialog() {
   });
   if (okBtn) okBtn.addEventListener('click', () => closeConfirm(true));
   if (cancelBtn) cancelBtn.addEventListener('click', () => closeConfirm(false));
+}
+
+function setupModalOverlayClose() {
+  // 为所有弹窗添加点击外部关闭功能
+  const modals = ['test-modal', 'import-modal', 'edit-modal'];
+  modals.forEach(id => {
+    const modal = byId(id);
+    if (!modal) return;
+    modal.addEventListener('click', (event) => {
+      if (event.target === modal) {
+        // 根据弹窗ID调用对应的关闭函数
+        if (id === 'test-modal') closeTestModal();
+        else if (id === 'import-modal') closeImportModal();
+        else if (id === 'edit-modal') closeEditModal();
+      }
+    });
+  });
 }
 
 function confirmAction(message, options = {}) {

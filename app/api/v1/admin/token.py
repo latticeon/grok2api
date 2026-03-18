@@ -566,6 +566,9 @@ async def test_token(data: dict[str, Any]) -> dict[str, Any]:
                     lines: list[str] = []
                     async for line in response.aiter_lines():
                         if line:
+                            # aiter_lines 返回 bytes，需要解码
+                            if isinstance(line, bytes):
+                                line = line.decode('utf-8', errors='replace')
                             lines.append(line)
                         if len(lines) >= 5:  # 只读取前5行用于测试
                             break
