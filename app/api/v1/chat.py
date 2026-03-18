@@ -215,6 +215,7 @@ def _streaming_error_response(exc: Exception) -> StreamingResponse:
                 "code": exc.code,
             }
         }
+        status_code = exc.status_code
     else:
         payload = {
             "error": {
@@ -223,6 +224,7 @@ def _streaming_error_response(exc: Exception) -> StreamingResponse:
                 "code": "stream_error",
             }
         }
+        status_code = 500
 
     async def _one_shot_error() -> AsyncGenerator[str, None]:
         yield f"event: error\ndata: {orjson.dumps(payload).decode()}\n\n"
@@ -231,6 +233,7 @@ def _streaming_error_response(exc: Exception) -> StreamingResponse:
     return StreamingResponse(
         _one_shot_error(),
         media_type="text/event-stream",
+        status_code=status_code,
         headers={"Cache-Control": "no-cache", "Connection": "keep-alive"},
     )
 
