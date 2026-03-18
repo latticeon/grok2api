@@ -114,6 +114,7 @@ async function init() {
   setupConfirmDialog();
   setupSelectAllMenu();
   refreshPageSizeOptionsI18n();
+  loadTestModels(); // 加载测试模型列表
   loadData();
 }
 
@@ -352,6 +353,9 @@ function renderTable() {
       : 'p-1 text-gray-400 hover:text-orange-600 rounded';
     tdActions.innerHTML = `
                 <div class="flex items-center justify-center gap-2">
+                     <button onclick="openTestModal('${item.token}')" class="p-1 text-gray-400 hover:text-blue-600 rounded" title="${t('token.testToken')}">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"></path></svg>
+                     </button>
                      <button onclick="refreshStatus('${item.token}')" class="p-1 text-gray-400 hover:text-black rounded" title="${t('token.refreshStatus')}">
                         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"></polyline><polyline points="1 20 1 14 7 14"></polyline><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path></svg>
                      </button>
@@ -1358,5 +1362,160 @@ async function batchEnableNSFW() {
 }
 
 
+
+
+
+
+// ========== Token 测试功能 ==========
+
+let testModelList = [];
+
+async function loadTestModels() {
+  const fallback = ['grok-3', 'grok-3-mini', 'grok-3-thinking', 'grok-4', 'grok-4-thinking', 'grok-4.1-mini', 'grok-4.1-fast', 'grok-4.20-beta'];
+  try {
+    const res = await fetch('/v1/models', { cache: 'no-store' });
+    if (!res.ok) throw new Error('models fetch failed');
+    const data = await res.json();
+    const items = Array.isArray(data && data.data) ? data.data : [];
+    const ids = items
+      .map(item => item && item.id)
+      .filter(Boolean)
+      .filter(id => {
+        // 排除视频模型
+        const name = id.toLowerCase();
+        return !name.includes('video');
+      });
+    testModelList = ids.length ? ids : fallback;
+  } catch (e) {
+    testModelList = fallback;
+  }
+}
+
+function populateTestModelSelect() {
+  const select = byId('test-model');
+  if (!select) return;
+  
+  select.innerHTML = '';
+  for (const modelId of testModelList) {
+    const opt = document.createElement('option');
+    opt.value = modelId;
+    opt.textContent = modelId;
+    select.appendChild(opt);
+  }
+}
+
+function openTestModal(token) {
+  const modal = byId('test-modal');
+  if (!modal) return;
+  
+  byId('test-token').value = token;
+  
+  // 填充模型列表
+  populateTestModelSelect();
+  
+  // 默认选择第一个模型
+  if (testModelList.length > 0) {
+    byId('test-model').value = testModelList[0];
+  }
+  
+  // 清空之前的结果
+  byId('test-results').classList.add('hidden');
+  byId('test-request-url').textContent = '';
+  byId('test-request-headers').textContent = '';
+  byId('test-request-body').textContent = '';
+  byId('test-response-status').textContent = '';
+  byId('test-response-headers').textContent = '';
+  byId('test-response-body').textContent = '';
+  
+  // 启用测试按钮
+  const btn = byId('btn-execute-test');
+  if (btn) btn.disabled = false;
+  
+  openModal('test-modal');
+}
+
+function closeTestModal() {
+  closeModal('test-modal');
+}
+
+async function executeTest() {
+  const token = byId('test-token').value;
+  const model = byId('test-model').value;
+  
+  if (!token) {
+    showToast(t('token.tokenEmpty'), 'error');
+    return;
+  }
+  
+  const btn = byId('btn-execute-test');
+  const originalText = btn.textContent;
+  
+  try {
+    btn.disabled = true;
+    btn.textContent = t('common.testing') || '测试中...';
+    
+    const res = await fetch('/v1/admin/tokens/test', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...buildAuthHeaders(apiKey)
+      },
+      body: JSON.stringify({ token, model })
+    });
+    
+    const data = await res.json();
+    
+    // 显示结果区域
+    byId('test-results').classList.remove('hidden');
+    
+    // 展示请求信息
+    if (data.request) {
+      byId('test-request-url').textContent = data.request.url || '-';
+      byId('test-request-headers').textContent = formatJson(data.request.headers);
+      byId('test-request-body').textContent = formatJson(data.request.body);
+    }
+    
+    // 展示响应信息
+    if (data.response) {
+      const statusEl = byId('test-response-status');
+      const status = data.response.status;
+      statusEl.textContent = `${status} ${data.response.status_text || ''}`;
+      statusEl.className = status >= 200 && status < 300 ? 'text-green-600 ml-2' : 'text-red-600 ml-2';
+      
+      byId('test-response-headers').textContent = formatJson(data.response.headers);
+      byId('test-response-body').textContent = formatJson(data.response.body);
+    }
+    
+    if (res.ok && data.status === 'success') {
+      showToast(t('token.testSuccess'), 'success');
+    } else {
+      showToast(data.detail || t('token.testFailed'), 'error');
+    }
+  } catch (e) {
+    console.error('Test error:', e);
+    showToast(t('token.requestError') + ': ' + e.message, 'error');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = originalText;
+  }
+}
+
+function formatJson(obj) {
+  if (!obj) return '-';
+  try {
+    if (typeof obj === 'string') {
+      // 尝试解析字符串为 JSON
+      try {
+        const parsed = JSON.parse(obj);
+        return JSON.stringify(parsed, null, 2);
+      } catch {
+        return obj;
+      }
+    }
+    return JSON.stringify(obj, null, 2);
+  } catch {
+    return String(obj);
+  }
+}
 
 window.onload = init;

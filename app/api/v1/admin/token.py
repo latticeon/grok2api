@@ -1,5 +1,6 @@
 import asyncio
 import re
+from typing import Any
 
 import orjson
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -431,3 +432,161 @@ async def enable_nsfw_async(data: dict):
         "task_id": task.id,
         "total": len(unique_tokens),
     }
+
+
+@router.post("/tokens/test", dependencies=[Depends(verify_app_key)])
+async def test_token(data: dict[str, Any]) -> dict[str, Any]:
+    """测试 Token 可用性"""
+    from pydantic import BaseModel
+    from curl_cffi.requests import AsyncSession
+    from app.services.reverse.utils.headers import build_headers
+    from app.services.reverse.app_chat import AppChatReverse, CHAT_API
+    from app.services.grok.services.model import ModelService
+    from app.core.proxy_pool import get_current_proxy_from
+    
+    class TestRequest(BaseModel):
+        token: str
+        model: str = "grok-3"
+    
+    try:
+        req = TestRequest(**data)
+        token = req.token.strip()
+        if token.startswith("sso="):
+            token = token[4:]
+        
+        model_id = req.model
+        
+        # 获取模型信息
+        model_info = ModelService.get(model_id)
+        if not model_info:
+            return {
+                "status": "failed",
+                "error": f"Invalid model: {model_id}",
+                "available_models": [m.model_id for m in ModelService.list() if not m.is_video]
+            }
+        
+        grok_model = model_info.grok_model
+        mode = model_info.model_mode
+        
+        # 使用与正式请求相同的 payload 构建方式
+        test_payload = AppChatReverse.build_payload(
+            message="test",
+            model=grok_model,
+            mode=mode,
+            file_attachments=[],
+            tool_overrides={},
+            model_config_override={}
+        )
+        
+        # 构建请求头
+        headers = build_headers(
+            cookie_token=token,
+            content_type="application/json",
+            origin="https://grok.com",
+            referer="https://grok.com/",
+        )
+        
+        # 准备响应数据
+        result: dict[str, Any] = {
+            "status": "success",
+            "request": {
+                "url": CHAT_API,
+                "headers": dict(headers),
+                "body": test_payload
+            },
+            "response": {
+                "status": None,
+                "status_text": "",
+                "headers": {},
+                "body": None
+            }
+        }
+        
+        # 发送请求
+        browser = get_config("proxy.browser")
+        timeout = get_config("chat.timeout", 30)
+        active_proxy_key, proxy_url = get_current_proxy_from("proxy.base_proxy_url")
+        
+        # 处理代理
+        proxy = None
+        proxies_dict = None
+        if proxy_url:
+            from urllib.parse import urlparse
+            parsed = urlparse(proxy_url)
+            scheme = parsed.scheme.lower()
+            if scheme.startswith("socks"):
+                proxy = proxy_url
+            else:
+                proxies_dict = {"http": proxy_url, "https": proxy_url}
+        
+        async with AsyncSession(impersonate=browser) as session:
+            try:
+                if proxy:
+                    response = await session.post(
+                        CHAT_API,
+                        headers=headers,
+                        data=orjson.dumps(test_payload),
+                        timeout=timeout,
+                        proxy=proxy,
+                        stream=True
+                    )
+                elif proxies_dict:
+                    response = await session.post(
+                        CHAT_API,
+                        headers=headers,
+                        data=orjson.dumps(test_payload),
+                        timeout=timeout,
+                        proxies=proxies_dict,  # type: ignore
+                        stream=True
+                    )
+                else:
+                    response = await session.post(
+                        CHAT_API,
+                        headers=headers,
+                        data=orjson.dumps(test_payload),
+                        timeout=timeout,
+                        stream=True
+                    )
+                
+                # 记录响应信息
+                response_data: dict[str, Any] = result["response"]
+                response_data["status"] = response.status_code
+                response_data["status_text"] = response.reason or ""
+                
+                # 记录响应头
+                response_headers: dict[str, str] = {}
+                for key, value in response.headers.items():
+                    response_headers[key] = value
+                response_data["headers"] = response_headers
+                
+                # 记录响应体 (流式响应，只读取前几行)
+                try:
+                    lines: list[str] = []
+                    async for line in response.aiter_lines():
+                        if line:
+                            lines.append(line)
+                        if len(lines) >= 5:  # 只读取前5行用于测试
+                            break
+                    body_text = "\n".join(lines)
+                    response_data["body"] = body_text[:2000] if body_text else ""
+                except Exception as e:
+                    response_data["body"] = f"Failed to read response body: {str(e)}"
+                
+                # 判断是否成功
+                if response.status_code == 200:
+                    result["status"] = "success"
+                else:
+                    result["status"] = "failed"
+                    
+            except Exception as e:
+                response_data: dict[str, Any] = result["response"]
+                response_data["status"] = 0
+                response_data["status_text"] = "Request Failed"
+                response_data["body"] = str(e)
+                result["status"] = "failed"
+        
+        return result
+        
+    except Exception as e:
+        logger.error(f"Token test failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))

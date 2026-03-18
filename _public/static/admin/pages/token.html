@@ -321,6 +321,77 @@
     </div>
   </div>
 
+  <!-- Test Modal -->
+  <div id="test-modal" class="modal-overlay hidden">
+    <div class="modal-content modal-lg" id="test-modal-content">
+      <div class="modal-header">
+        <h3 class="modal-title" data-i18n="token.testTitle">测试 Token</h3>
+        <button onclick="closeTestModal()" class="modal-close">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <line x1="18" y1="6" x2="6" y2="18"></line>
+            <line x1="6" y1="6" x2="18" y2="18"></line>
+          </svg>
+        </button>
+      </div>
+      <div class="space-y-4">
+        <input type="hidden" id="test-token">
+        <div>
+          <label class="modal-label mb-1 block" data-i18n="token.testModel">选择模型</label>
+          <select id="test-model" class="geist-input">
+            <!-- 模型列表将通过 JS 动态加载 -->
+          </select>
+        </div>
+        <div class="flex justify-end gap-2 pt-2">
+          <button onclick="closeTestModal()" class="geist-button-outline text-xs px-3" data-i18n="common.cancel">取消</button>
+          <button onclick="executeTest()" id="btn-execute-test" class="geist-button text-xs px-3" data-i18n="token.startTest">开始测试</button>
+        </div>
+        
+        <!-- Test Results -->
+        <div id="test-results" class="hidden space-y-3">
+          <div class="h-px bg-[var(--border)] my-4"></div>
+          
+          <!-- Request Section -->
+          <div>
+            <h4 class="text-sm font-semibold mb-2" data-i18n="token.testRequest">请求信息</h4>
+            <div class="bg-gray-50 rounded p-3 space-y-2 font-mono text-xs">
+              <div>
+                <span class="font-semibold text-gray-600">URL:</span>
+                <div id="test-request-url" class="text-gray-800 break-all mt-1"></div>
+              </div>
+              <div>
+                <span class="font-semibold text-gray-600">Headers:</span>
+                <pre id="test-request-headers" class="text-gray-800 mt-1 overflow-x-auto whitespace-pre-wrap"></pre>
+              </div>
+              <div>
+                <span class="font-semibold text-gray-600">Body:</span>
+                <pre id="test-request-body" class="text-gray-800 mt-1 overflow-x-auto whitespace-pre-wrap"></pre>
+              </div>
+            </div>
+          </div>
+          
+          <!-- Response Section -->
+          <div>
+            <h4 class="text-sm font-semibold mb-2" data-i18n="token.testResponse">响应信息</h4>
+            <div class="bg-gray-50 rounded p-3 space-y-2 font-mono text-xs">
+              <div>
+                <span class="font-semibold text-gray-600">Status:</span>
+                <span id="test-response-status" class="text-gray-800 ml-2"></span>
+              </div>
+              <div>
+                <span class="font-semibold text-gray-600">Headers:</span>
+                <pre id="test-response-headers" class="text-gray-800 mt-1 overflow-x-auto whitespace-pre-wrap"></pre>
+              </div>
+              <div>
+                <span class="font-semibold text-gray-600">Body:</span>
+                <pre id="test-response-body" class="text-gray-800 mt-1 overflow-x-auto whitespace-pre-wrap max-h-96"></pre>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <script src="/static/common/js/draggable.js"></script>
   <script src="/static/i18n/i18n.js"></script>
   <script src="/static/common/js/admin-auth.js?v=1.6.1"></script>
