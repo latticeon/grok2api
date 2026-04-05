@@ -117,7 +117,7 @@ class AppChatReverse:
 
     @staticmethod
     def build_payload(
-        message: str,
+        message: Any,
         model: str,
         mode: str = None,
         file_attachments: List[str] = None,
@@ -192,7 +192,7 @@ class AppChatReverse:
     async def request(
         session: AsyncSession,
         token: str,
-        message: str,
+        message: Any,
         model: str,
         mode: str = None,
         file_attachments: List[str] = None,
@@ -249,10 +249,19 @@ class AppChatReverse:
                 model_config_override=model_config_override,
                 request_overrides=request_overrides,
             )
+            payload_message = payload.get("message")
+            if isinstance(payload_message, str):
+                message_len = len(payload_message)
+            elif isinstance(payload_message, list):
+                message_len = len(payload_message)
+            elif payload_message is None:
+                message_len = 0
+            else:
+                message_len = len(str(payload_message))
             payload_summary = {
                 "model": payload.get("modelName"),
                 "mode": payload.get("modelMode"),
-                "message_len": payload.get("message") or "",
+                "message_len": message_len,
                 "file_attachments": len(payload.get("fileAttachments") or []),
                 "custom_personality_len": len(payload.get("customPersonality") or ""),
             }

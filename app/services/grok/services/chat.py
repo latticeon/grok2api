@@ -110,82 +110,87 @@ def _get_chat_semaphore() -> asyncio.Semaphore:
 class MessageExtractor:
     """消息内容提取器"""
 
+    ASSEMBLY_STANDARD = "standard"
+    ASSEMBLY_JSON = "json"
+    ASSEMBLY_TAGGED = "tagged"
+
     @staticmethod
-    def extract(
+    def _prepare_messages(
         messages: List[Dict[str, Any]],
         tools: List[Dict[str, Any]] = None,
-        tool_choice: Any = None,
-        parallel_tool_calls: bool = True,
-    ) -> tuple[str, List[str], List[str]]:
-        """从 OpenAI 消息格式提取内容，返回 (text, file_attachments, image_attachments)"""
-        # Pre-process: convert tool-related messages to text format
-        if tools:
-            messages = format_tool_history(messages)
+        assembly: str = ASSEMBLY_STANDARD,
+    ) -> List[Dict[str, Any]]:
+        if assembly == MessageExtractor.ASSEMBLY_JSON:
+            prepared = messages
+        else:
+            prepared = format_tool_history(messages) if tools else messages
+        return [dict(msg) for msg in prepared if isinstance(msg, dict)]
 
-        texts = []
+    @staticmethod
+    def _extract_parts(
+        content: Any,
+        file_attachments: List[str],
+        image_attachments: List[str],
+    ) -> List[str]:
+        parts: List[str] = []
+
+        if isinstance(content, str):
+            if content.strip():
+                parts.append(content)
+            return parts
+
+        if isinstance(content, dict):
+            items = [content]
+        elif isinstance(content, list):
+            items = content
+        else:
+            if content is not None:
+                text = str(content).strip()
+                if text:
+                    parts.append(text)
+            return parts
+
+        for item in items:
+            if not isinstance(item, dict):
+                continue
+            item_type = item.get("type", "")
+            if item_type == "text":
+                if text := item.get("text", "").strip():
+                    parts.append(text)
+            elif item_type == "image_url":
+                image_data = item.get("image_url", {})
+                url = image_data.get("url", "")
+                if url:
+                    image_attachments.append(url)
+            elif item_type == "input_audio":
+                audio_data = item.get("input_audio", {})
+                data = audio_data.get("data", "")
+                if data:
+                    file_attachments.append(data)
+            elif item_type == "file":
+                file_data = item.get("file", {})
+                raw = file_data.get("file_data", "")
+                if raw:
+                    file_attachments.append(raw)
+
+        return parts
+
+    @staticmethod
+    def _extract_text_messages(
+        messages: List[Dict[str, Any]],
+    ) -> tuple[List[Dict[str, str]], List[str], List[str]]:
         file_attachments: List[str] = []
         image_attachments: List[str] = []
-        extracted = []
+        extracted: List[Dict[str, str]] = []
 
         for msg in messages:
             role = msg.get("role", "") or "user"
             content = msg.get("content", "")
-            parts = []
-
-            if isinstance(content, str):
-                if content.strip():
-                    parts.append(content)
-            elif isinstance(content, dict):
-                content = [content]
-                for item in content:
-                    if not isinstance(item, dict):
-                        continue
-                    item_type = item.get("type", "")
-                    if item_type == "text":
-                        if text := item.get("text", "").strip():
-                            parts.append(text)
-                    elif item_type == "image_url":
-                        image_data = item.get("image_url", {})
-                        url = image_data.get("url", "")
-                        if url:
-                            image_attachments.append(url)
-                    elif item_type == "input_audio":
-                        audio_data = item.get("input_audio", {})
-                        data = audio_data.get("data", "")
-                        if data:
-                            file_attachments.append(data)
-                    elif item_type == "file":
-                        file_data = item.get("file", {})
-                        raw = file_data.get("file_data", "")
-                        if raw:
-                            file_attachments.append(raw)
-            elif isinstance(content, list):
-                for item in content:
-                    if not isinstance(item, dict):
-                        continue
-                    item_type = item.get("type", "")
-
-                    if item_type == "text":
-                        if text := item.get("text", "").strip():
-                            parts.append(text)
-
-                    elif item_type == "image_url":
-                        image_data = item.get("image_url", {})
-                        url = image_data.get("url", "")
-                        if url:
-                            image_attachments.append(url)
-
-                    elif item_type == "input_audio":
-                        audio_data = item.get("input_audio", {})
-                        data = audio_data.get("data", "")
-                        if data:
-                            file_attachments.append(data)
-
-                    elif item_type == "file":
-                        file_data = item.get("file", {})
-                        raw = file_data.get("file_data", "")
-                        if raw:
-                            file_attachments.append(raw)
+            parts = MessageExtractor._extract_parts(
+                content,
+                file_attachments,
+                image_attachments,
+            )
 
             # 保留工具调用轨迹，避免部分客户端在多轮工具会话中丢失上下文顺序
             tool_calls = msg.get("tool_calls")
@@ -206,9 +211,7 @@ class MessageExtractor:
                     if not isinstance(arguments, str):
                         arguments = str(arguments)
                     arguments = arguments.strip()
-                    parts.append(
-                        f"[tool_call] {name} {arguments}".strip()
-                    )
+                    parts.append(f"[tool_call] {name} {arguments}".strip())
 
             if parts:
                 role_label = role
@@ -221,7 +224,21 @@ class MessageExtractor:
                         role_label = f"{role_label}#{call_id.strip()}"
                 extracted.append({"role": role_label, "text": "\n".join(parts)})
 
-        # 找到最后一条 user 消息
+        return extracted, file_attachments, image_attachments
+
+    @staticmethod
+    def _build_tool_prompt(
+        tools: List[Dict[str, Any]] = None,
+        tool_choice: Any = None,
+        parallel_tool_calls: bool = True,
+    ) -> str:
+        if not tools:
+            return ""
+        return build_tool_prompt(tools, tool_choice, parallel_tool_calls) or ""
+
+    @staticmethod
+    def _assemble_standard(extracted: List[Dict[str, str]]) -> str:
+        texts: List[str] = []
         last_user_index = next(
             (
                 i
@@ -236,17 +253,88 @@ class MessageExtractor:
             text = item["text"]
             texts.append(text if i == last_user_index else f"{role}: {text}")
 
-        combined = "\n\n".join(texts)
+        return "\n\n".join(texts)
 
-        # If there are attachments but no text, inject a fallback prompt.
-        if (not combined.strip()) and (file_attachments or image_attachments):
-            combined = "Refer to the following content:"
+    @staticmethod
+    def _assemble_tagged(extracted: List[Dict[str, str]]) -> str:
+        texts: List[str] = []
+        first_plain_emitted = False
 
-        # Prepend tool system prompt if tools are provided
-        if tools:
-            tool_prompt = build_tool_prompt(tools, tool_choice, parallel_tool_calls)
+        for item in extracted:
+            role = item["role"] or "user"
+            text = item["text"]
+            if not text:
+                continue
+
+            if role == "assistant":
+                texts.append(f"<｜Assistant｜>{text}<｜end▁of▁sentence｜>")
+                continue
+
+            user_text = text if role in {"system", "user"} else f"{role}: {text}"
+            if role in {"system", "user"} and not first_plain_emitted:
+                texts.append(user_text)
+                first_plain_emitted = True
+            else:
+                texts.append(f"<｜User｜>{user_text}")
+
+        return "\n".join(texts)
+
+    @staticmethod
+    def _assemble_json(
+        messages: List[Dict[str, Any]],
+    ) -> List[Dict[str, Any]]:
+        return [dict(msg) for msg in messages]
+
+    @staticmethod
+    def extract(
+        messages: List[Dict[str, Any]],
+        tools: List[Dict[str, Any]] = None,
+        tool_choice: Any = None,
+        parallel_tool_calls: bool = True,
+    ) -> tuple[Any, List[str], List[str]]:
+        """从 OpenAI 消息格式提取内容，返回 (message, file_attachments, image_attachments)"""
+        assembly = str(
+            get_config("app.message_assembly", MessageExtractor.ASSEMBLY_STANDARD)
+            or MessageExtractor.ASSEMBLY_STANDARD
+        ).strip().lower()
+        if assembly not in {
+            MessageExtractor.ASSEMBLY_STANDARD,
+            MessageExtractor.ASSEMBLY_JSON,
+            MessageExtractor.ASSEMBLY_TAGGED,
+        }:
+            assembly = MessageExtractor.ASSEMBLY_STANDARD
+        prepared_messages = MessageExtractor._prepare_messages(
+            messages,
+            tools=tools,
+            assembly=assembly,
+        )
+        extracted, file_attachments, image_attachments = MessageExtractor._extract_text_messages(
+            prepared_messages
+        )
+        tool_prompt = MessageExtractor._build_tool_prompt(
+            tools,
+            tool_choice,
+            parallel_tool_calls,
+        )
+
+        if assembly == MessageExtractor.ASSEMBLY_JSON:
+            combined: Any = MessageExtractor._assemble_json(prepared_messages)
+        else:
             if tool_prompt:
-                combined = f"{tool_prompt}\n\n{combined}"
+                extracted = [{"role": "system", "text": tool_prompt}, *extracted]
+            if assembly == MessageExtractor.ASSEMBLY_TAGGED:
+                combined = MessageExtractor._assemble_tagged(extracted)
+            else:
+                combined = MessageExtractor._assemble_standard(extracted)
+
+        # If there are attachments but no text, inject a fallback prompt for text-based modes.
+        if (
+            assembly != MessageExtractor.ASSEMBLY_JSON
+            and isinstance(combined, str)
+            and (not combined.strip())
+            and (file_attachments or image_attachments)
+        ):
+            combined = "Refer to the following content:"
 
         return combined, file_attachments, image_attachments
 
@@ -377,7 +465,13 @@ class GrokChatService:
             model_config_override=model_config_override,
         )
 
-        prompt_tokens = estimate_prompt_tokens(message)
+        prompt_source = message
+        if not isinstance(prompt_source, str):
+            try:
+                prompt_source = orjson.dumps(prompt_source).decode()
+            except Exception:
+                prompt_source = str(prompt_source)
+        prompt_tokens = estimate_prompt_tokens(prompt_source)
         return response, stream, model, prompt_tokens
 
 

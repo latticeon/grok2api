@@ -26,6 +26,11 @@ thinking = true
 dynamic_statsig = true
 # 自定义指令
 custom_instruction = ""
+# OpenAI messages 到 Grok message 的组装方式：
+# standard = 当前标准压平格式
+# json = 直接透传 messages 数组
+# tagged = 首条 system/user 直出，后续 user/system 使用 <｜User｜>，assistant 使用 <｜Assistant｜>...<｜end▁of▁sentence｜>
+message_assembly = "standard"
 # 过滤的特殊标签列表
 filter_tags = ["xaiartifact","xai:tool_usage_card","grok:render"]
 

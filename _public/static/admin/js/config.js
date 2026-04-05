@@ -56,6 +56,7 @@ const LOCALE_MAP = {
     "thinking": { title: "思维链", desc: "是否默认启用思维链输出。" },
     "dynamic_statsig": { title: "动态指纹", desc: "是否默认启用动态生成 Statsig 指纹。" },
     "custom_instruction": { title: "自定义指令", desc: "多行文本，会透传为 Grok 请求参数 customPersonality。" },
+    "message_assembly": { title: "消息组装方式", desc: "OpenAI messages 转发到 Grok 前的默认组装格式。" },
     "filter_tags": { title: "过滤标签", desc: "设置自动过滤 Grok 响应中的特殊标签。" }
   },
 
@@ -504,6 +505,13 @@ function buildFieldCard(section, key, val) {
     built = buildSelectInput(section, key, val, [
       { val: 'html', text: 'HTML' },
       { val: 'url', text: 'URL' }
+    ]);
+  }
+  else if (section === 'app' && key === 'message_assembly') {
+    built = buildSelectInput(section, key, val, [
+      { val: 'standard', text: 'standard' },
+      { val: 'json', text: 'json' },
+      { val: 'tagged', text: 'tagged' }
     ]);
   }
   else if (section === 'video' && key === 'upscale_timing') {
