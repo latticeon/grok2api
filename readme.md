@@ -8,6 +8,9 @@
 > [!NOTE]
 > 开源项目欢迎大家支持二开和PR，但请保留原作者标识和前端标识，尊重他人劳动成果～！
 
+> [!NOTE]
+> 没错，我又来重构了，目前不接受所有 PR～
+
 基于 **FastAPI** 重构的 Grok2API，全面适配最新 Web 调用格式，支持流/非流式对话、工具调用、图像生成/编辑、视频生成/超分（文生视频 / 图生视频）、深度思考，号池并发与自动负载均衡一体化。
 
 <img width="4800" height="4200" alt="image" src="https://github.com/user-attachments/assets/a6669674-8afe-4ae5-bf81-a2ec1f864233" />
