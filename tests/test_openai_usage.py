@@ -271,3 +271,22 @@ def test_x_message_assembly_header_overrides_default(monkeypatch, path, body, se
     assert response.status_code == 200
     assert captured["message_assembly"] == "json"
     assert expected_key in captured
+
+
+def test_message_extractor_json_assembly_returns_json_string():
+    message, file_attachments, image_attachments = MessageExtractor.extract(
+        [
+            {"role": "system", "content": "sys"},
+            {"role": "user", "content": "hi"},
+        ],
+        assembly="json",
+    )
+
+    assert isinstance(message, str)
+    payload = orjson.loads(message)
+    assert payload == [
+        {"role": "system", "content": "sys"},
+        {"role": "user", "content": "hi"},
+    ]
+    assert file_attachments == []
+    assert image_attachments == []

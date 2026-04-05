@@ -299,8 +299,9 @@ class MessageExtractor:
     @staticmethod
     def _assemble_json(
         messages: List[Dict[str, Any]],
-    ) -> List[Dict[str, Any]]:
-        return [dict(msg) for msg in messages]
+    ) -> str:
+        normalized = [dict(msg) for msg in messages if isinstance(msg, dict)]
+        return orjson.dumps(normalized, option=orjson.OPT_INDENT_2).decode("utf-8")
 
     @staticmethod
     def extract(
