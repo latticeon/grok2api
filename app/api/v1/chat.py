@@ -8,12 +8,12 @@ import binascii
 import time
 import uuid
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Request
 from fastapi.responses import StreamingResponse, JSONResponse
 from pydantic import BaseModel, Field
 import orjson
 
-from app.services.grok.services.chat import ChatService
+from app.services.grok.services.chat import ChatService, MessageExtractor
 from app.services.grok.services.image import ImageGenerationService
 from app.services.grok.services.image_edit import ImageEditService
 from app.services.grok.services.model import ModelService
@@ -195,6 +195,26 @@ def _imagine_fast_server_image_config() -> ImageConfig:
         or "url"
     )
     return ImageConfig(n=n, size=size, response_format=response_format)
+
+
+def _resolve_message_assembly_override(http_request: Request) -> Optional[str]:
+    raw_value = http_request.headers.get("x-message-assembly")
+    if raw_value is None:
+        return None
+
+    assembly = str(raw_value).strip().lower()
+    if not assembly:
+        return None
+    if assembly not in MessageExtractor.ASSEMBLY_OPTIONS:
+        raise ValidationException(
+            message=(
+                "X-Message-Assembly must be one of "
+                f"{sorted(MessageExtractor.ASSEMBLY_OPTIONS)}"
+            ),
+            param="X-Message-Assembly",
+            code="invalid_message_assembly",
+        )
+    return assembly
 
 
 async def _safe_sse_stream(stream: AsyncIterable[str]) -> AsyncGenerator[str, None]:
@@ -702,7 +722,7 @@ router = APIRouter(tags=["Chat"])
 
 
 @router.post("/chat/completions")
-async def chat_completions(request: ChatCompletionRequest):
+async def chat_completions(request: ChatCompletionRequest, http_request: Request):
     """Chat Completions API - 兼容 OpenAI"""
     from app.core.logger import logger
 
@@ -710,6 +730,7 @@ async def chat_completions(request: ChatCompletionRequest):
     validate_request(request)
 
     logger.debug(f"Chat request: model={request.model}, stream={request.stream}")
+    message_assembly = _resolve_message_assembly_override(http_request)
 
     # 检测模型类型
     model_info = ModelService.get(request.model)
@@ -867,6 +888,7 @@ async def chat_completions(request: ChatCompletionRequest):
                 tools=request.tools,
                 tool_choice=request.tool_choice,
                 parallel_tool_calls=request.parallel_tool_calls,
+                message_assembly=message_assembly,
             )
         except Exception as e:
             if request.stream is not False:

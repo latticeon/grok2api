@@ -113,6 +113,23 @@ class MessageExtractor:
     ASSEMBLY_STANDARD = "standard"
     ASSEMBLY_JSON = "json"
     ASSEMBLY_TAGGED = "tagged"
+    ASSEMBLY_OPTIONS = {
+        ASSEMBLY_STANDARD,
+        ASSEMBLY_JSON,
+        ASSEMBLY_TAGGED,
+    }
+
+    @staticmethod
+    def resolve_assembly(assembly: Any = None) -> str:
+        resolved = assembly
+        if resolved is None:
+            resolved = get_config(
+                "app.message_assembly", MessageExtractor.ASSEMBLY_STANDARD
+            )
+        resolved = str(resolved or MessageExtractor.ASSEMBLY_STANDARD).strip().lower()
+        if resolved not in MessageExtractor.ASSEMBLY_OPTIONS:
+            return MessageExtractor.ASSEMBLY_STANDARD
+        return resolved
 
     @staticmethod
     def _prepare_messages(
@@ -291,18 +308,10 @@ class MessageExtractor:
         tools: List[Dict[str, Any]] = None,
         tool_choice: Any = None,
         parallel_tool_calls: bool = True,
+        assembly: Any = None,
     ) -> tuple[Any, List[str], List[str]]:
         """从 OpenAI 消息格式提取内容，返回 (message, file_attachments, image_attachments)"""
-        assembly = str(
-            get_config("app.message_assembly", MessageExtractor.ASSEMBLY_STANDARD)
-            or MessageExtractor.ASSEMBLY_STANDARD
-        ).strip().lower()
-        if assembly not in {
-            MessageExtractor.ASSEMBLY_STANDARD,
-            MessageExtractor.ASSEMBLY_JSON,
-            MessageExtractor.ASSEMBLY_TAGGED,
-        }:
-            assembly = MessageExtractor.ASSEMBLY_STANDARD
+        assembly = MessageExtractor.resolve_assembly(assembly)
         prepared_messages = MessageExtractor._prepare_messages(
             messages,
             tools=tools,
@@ -345,7 +354,7 @@ class GrokChatService:
     async def chat(
         self,
         token: str,
-        message: str,
+        message: Any,
         model: str,
         mode: str = None,
         stream: bool = None,
@@ -408,6 +417,7 @@ class GrokChatService:
         tools: List[Dict[str, Any]] = None,
         tool_choice: Any = None,
         parallel_tool_calls: bool = True,
+        message_assembly: str | None = None,
     ):
         """OpenAI 兼容接口"""
         model_info = ModelService.get(model)
@@ -418,7 +428,11 @@ class GrokChatService:
         mode = model_info.model_mode
         # 提取消息和附件
         message, file_attachments, image_attachments = MessageExtractor.extract(
-            messages, tools=tools, tool_choice=tool_choice, parallel_tool_calls=parallel_tool_calls
+            messages,
+            tools=tools,
+            tool_choice=tool_choice,
+            parallel_tool_calls=parallel_tool_calls,
+            assembly=message_assembly,
         )
         logger.debug(
             "Extracted message length=%s, files=%s, images=%s",
@@ -489,6 +503,7 @@ class ChatService:
         tools: List[Dict[str, Any]] = None,
         tool_choice: Any = None,
         parallel_tool_calls: bool = True,
+        message_assembly: str | None = None,
     ):
         """Chat Completions 入口"""
         # 获取 token
@@ -536,6 +551,7 @@ class ChatService:
                     tools=tools,
                     tool_choice=tool_choice,
                     parallel_tool_calls=parallel_tool_calls,
+                    message_assembly=message_assembly,
                 )
 
                 # 处理响应

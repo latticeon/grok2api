@@ -1,9 +1,15 @@
 import asyncio
 
 import orjson
+import pytest
+from fastapi import FastAPI
+from fastapi.testclient import TestClient
 
+from app.core.exceptions import register_exception_handlers
 from app.services.grok.services.chat import CollectProcessor, StreamProcessor
 from app.services.grok.services.responses import ResponsesService
+from app.api.v1.chat import router as chat_router
+from app.api.v1.response import router as response_router
 
 
 def _json_line(payload: dict) -> bytes:
@@ -18,6 +24,14 @@ async def _iter_lines(lines):
 def _decode_sse_json(chunk: str) -> dict:
     assert chunk.startswith("data: ")
     return orjson.loads(chunk[6:])
+
+
+def _build_test_app() -> FastAPI:
+    app = FastAPI()
+    register_exception_handlers(app)
+    app.include_router(chat_router, prefix="/v1")
+    app.include_router(response_router, prefix="/v1")
+    return app
 
 
 def test_collect_processor_returns_estimated_usage(monkeypatch):
@@ -159,3 +173,101 @@ def test_responses_stream_completed_event_uses_chat_usage(monkeypatch):
         assert usage["total_tokens"] == 18
 
     asyncio.run(_run())
+
+
+@pytest.mark.parametrize(
+    ("path", "body"),
+    [
+        (
+            "/v1/chat/completions",
+            {
+                "model": "grok-4",
+                "messages": [{"role": "user", "content": "hi"}],
+                "stream": False,
+            },
+        ),
+        (
+            "/v1/responses",
+            {
+                "model": "grok-4",
+                "input": "hi",
+                "stream": False,
+            },
+        ),
+    ],
+)
+def test_x_message_assembly_header_rejects_invalid_value(monkeypatch, path, body):
+    client = TestClient(_build_test_app())
+
+    response = client.post(
+        path,
+        json=body,
+        headers={"X-Message-Assembly": "bad-mode"},
+    )
+
+    assert response.status_code == 400
+    payload = response.json()
+    assert payload["error"]["code"] == "invalid_message_assembly"
+
+
+@pytest.mark.parametrize(
+    ("path", "body", "service_path", "expected_key"),
+    [
+        (
+            "/v1/chat/completions",
+            {
+                "model": "grok-4",
+                "messages": [{"role": "user", "content": "hi"}],
+                "stream": False,
+            },
+            "app.api.v1.chat.ChatService.completions",
+            "messages",
+        ),
+        (
+            "/v1/responses",
+            {
+                "model": "grok-4",
+                "input": "hi",
+                "stream": False,
+            },
+            "app.api.v1.response.ResponsesService.create",
+            "input_value",
+        ),
+    ],
+)
+def test_x_message_assembly_header_overrides_default(monkeypatch, path, body, service_path, expected_key):
+    captured = {}
+
+    async def fake_service(**kwargs):
+        captured.update(kwargs)
+        return {
+            "id": "ok",
+            "object": "chat.completion",
+            "created": 1,
+            "model": kwargs.get("model", "grok-4"),
+            "choices": [
+                {
+                    "index": 0,
+                    "message": {"role": "assistant", "content": "ok"},
+                    "finish_reason": "stop",
+                }
+            ],
+            "usage": {
+                "prompt_tokens": 1,
+                "completion_tokens": 1,
+                "total_tokens": 2,
+            },
+        }
+
+    monkeypatch.setattr(service_path, fake_service)
+    client = TestClient(_build_test_app())
+
+    response = client.post(
+        path,
+        json=body,
+        headers={"X-Message-Assembly": "json"},
+    )
+
+    assert response.status_code == 200
+    assert captured["message_assembly"] == "json"
+    assert expected_key in captured

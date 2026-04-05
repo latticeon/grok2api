@@ -192,6 +192,7 @@ curl http://localhost:8000/v1/chat/completions \
 - `image_url/input_audio/file` only supports URL or Data URI (`data:<mime>;base64,...`); raw base64 will be rejected.
 - `reasoning_effort`: `none` disables thinking output; any other value enables it.
 - Tool calling is **prompt-based + client-executed**: the model emits `<tool_call>{...}</tool_call>` and the server parses it into `tool_calls`; tools are not executed server-side.
+- Optional header `X-Message-Assembly` overrides the server default message assembly mode (`app.message_assembly`) per request. Supported values: `standard` / `json` / `tagged`.
 - `grok-imagine-1.0-fast` works similarly to the imagine waterfall stream, and can be called directly via `/v1/chat/completions`. Its `n/size/response_format` are globally controlled by the server's `[imagine_fast]` config.
 - `grok-imagine-1.0-fast` streaming output in `/chat/completions` only returns the final image, hiding intermediate preview images.
 - `grok-imagine-1.0-fast` streaming URL output will retain the original image filename (without appending `-final`).
@@ -243,6 +244,7 @@ curl http://localhost:8000/v1/responses \
 **Notes**:
 
 - Built-in tools `web_search` / `file_search` / `code_interpreter` are mapped to function tools for **tool call emission only**; hosted tool execution is not performed.
+- Optional header `X-Message-Assembly` overrides the server default message assembly mode (`app.message_assembly`) per request. Supported values: `standard` / `json` / `tagged`.
 - Streaming includes `response.output_text.*` and `response.function_call_arguments.*` events.
 
 <br>
@@ -405,6 +407,7 @@ Config file: `data/config.toml`
 |  | `thinking` | Thinking | Enable reasoning output by default. | `true` |
 |  | `dynamic_statsig` | Dynamic statsig | Generate dynamic Statsig values. | `true` |
 |  | `custom_instruction` | Custom instruction | Multi-line text passed through as Grok `customPersonality`. | `""` |
+|  | `message_assembly` | Message assembly | Default assembly mode before forwarding OpenAI messages to Grok; can also be overridden per request with `X-Message-Assembly`. | `standard` |
 |  | `filter_tags` | Filter tags | Filter special tags in responses. | `["xaiartifact","xai:tool_usage_card","grok:render"]` |
 | **proxy** | `base_proxy_url` | Base proxy URL | Proxy to Grok web. | `""` |
 |  | `asset_proxy_url` | Asset proxy URL | Proxy to Grok assets (img/video). | `""` |

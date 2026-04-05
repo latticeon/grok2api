@@ -195,6 +195,7 @@ curl http://localhost:8000/v1/chat/completions \
 - `image_url/input_audio/file` 仅支持 URL 或 Data URI（`data:<mime>;base64,...`），裸 base64 会报错。
 - `reasoning_effort`：`none` 表示不输出思考，其他值都会输出思考内容。
 - 工具调用为**提示词模拟 + 客户端执行回填**：模型通过 `<tool_call>{...}</tool_call>` 输出调用请求，服务端解析为 `tool_calls`；不执行工具。
+- 可选请求头 `X-Message-Assembly` 可覆盖后台配置的默认消息组装方式（`app.message_assembly`），支持：`standard` / `json` / `tagged`。
 - `grok-imagine-1.0-fast` 与瀑布流 imagine 生成链路一致，可直接通过 `/v1/chat/completions` 调用；其 `n/size/response_format` 由服务端 `[imagine_fast]` 统一控制。
 - `grok-imagine-1.0-fast` 在 `/v1/chat/completions` 的流式输出仅返回最终成图，不返回中间预览图。
 - `grok-imagine-1.0-fast` 流式 URL 出图会保持原始图片名（不追加 `-final` 后缀）。
@@ -247,6 +248,7 @@ curl http://localhost:8000/v1/responses \
 **注意事项**：
 
 - 内置工具 `web_search` / `file_search` / `code_interpreter` 目前会映射为 function tool **触发调用**，但**不执行托管工具**，需客户端自行执行并回填。
+- 可选请求头 `X-Message-Assembly` 可覆盖后台配置的默认消息组装方式（`app.message_assembly`），支持：`standard` / `json` / `tagged`。
 - 流式输出会包含 `response.output_text.*` 与 `response.function_call_arguments.*` 事件。
 
 <br>
@@ -409,6 +411,7 @@ curl http://localhost:8000/v1/videos \
 |  | `thinking` | 思维链 | 是否默认启用思维链输出。 | `true` |
 |  | `dynamic_statsig` | 动态指纹 | 是否动态生成 Statsig 指纹。 | `true` |
 |  | `custom_instruction` | 自定义指令 | 多行文本，透传为 Grok `customPersonality`。 | `""` |
+|  | `message_assembly` | 消息组装方式 | OpenAI messages 转发到 Grok 前的默认组装方式；也可被请求头 `X-Message-Assembly` 按请求覆盖。 | `standard` |
 |  | `filter_tags` | 过滤标签 | 自动过滤 Grok 响应中的特殊标签。 | `["xaiartifact","xai:tool_usage_card","grok:render"]` |
 | **proxy** | `base_proxy_url` | 基础代理 URL | 代理请求到 Grok 官网的基础服务地址。 | `""` |
 |  | `asset_proxy_url` | 资源代理 URL | 代理请求到 Grok 官网的静态资源（图片/视频）地址。 | `""` |

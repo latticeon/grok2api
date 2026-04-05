@@ -684,6 +684,7 @@ class ResponsesService:
         store: Optional[bool] = None,
         previous_response_id: Optional[str] = None,
         truncation: Optional[str] = None,
+        message_assembly: Optional[str] = None,
     ) -> Any:
         messages = _coerce_input_to_messages(input_value)
         if instructions:
@@ -712,6 +713,8 @@ class ResponsesService:
             chat_kwargs["parallel_tool_calls"] = parallel_tool_calls
         if reasoning_effort is not None:
             chat_kwargs["reasoning_effort"] = reasoning_effort
+        if message_assembly is not None:
+            chat_kwargs["message_assembly"] = message_assembly
 
         result = await ChatService.completions(**chat_kwargs)
 
