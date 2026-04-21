@@ -152,6 +152,7 @@ def test_stream_processor_empty_response_raises_before_done(monkeypatch):
             ):
                 chunks.append(chunk)
 
+        assert chunks == []
         assert "data: [DONE]\n\n" not in chunks
 
     asyncio.run(_run())
@@ -272,6 +273,8 @@ def test_chat_service_stream_retries_empty_response(monkeypatch):
             chunks.append(chunk)
 
         assert any('"content":"Hello"' in chunk for chunk in chunks)
+        role_chunks = [chunk for chunk in chunks if '"role":"assistant"' in chunk]
+        assert len(role_chunks) == 1
         assert chunks[-1] == "data: [DONE]\n\n"
         assert fake_mgr.record_fail_calls == [("tok1", 0, "empty_response")]
         assert fake_mgr.consume_calls == [("tok2", "low")]

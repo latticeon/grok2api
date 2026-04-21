@@ -848,6 +848,12 @@ class StreamProcessor(proc_base.BaseProcessor):
         if isinstance(tool_call, dict):
             self._completion_tool_calls.append(tool_call)
 
+    def _emit_role_once(self) -> str | None:
+        if self.role_sent:
+            return None
+        self.role_sent = True
+        return self._sse(role="assistant")
+
     def _with_tool_index(self, tool_call: Any) -> Any:
         if not isinstance(tool_call, dict):
             return tool_call
@@ -1074,10 +1080,6 @@ class StreamProcessor(proc_base.BaseProcessor):
                 if rid := resp.get("rolloutId"):
                     self.rollout_id = str(rid)
 
-                if not self.role_sent:
-                    yield self._sse(role="assistant")
-                    self.role_sent = True
-
                 if img := resp.get("streamingImageGenerationResponse"):
                     if not self.show_think:
                         continue
@@ -1104,6 +1106,9 @@ class StreamProcessor(proc_base.BaseProcessor):
                         rendered = await dl_service.render_image(
                             url, self.token, img_id
                         )
+                        role_chunk = self._emit_role_once()
+                        if role_chunk is not None:
+                            yield role_chunk
                         self._record_content(f"{rendered}\n")
                         yield self._sse(f"{rendered}\n")
                         self._has_output_content = True
@@ -1128,6 +1133,9 @@ class StreamProcessor(proc_base.BaseProcessor):
                             original = image.get("original")
                             title = image.get("title") or ""
                             if original:
+                                role_chunk = self._emit_role_once()
+                                if role_chunk is not None:
+                                    yield role_chunk
                                 title_safe = title.replace("\n", " ").strip()
                                 if title_safe:
                                     self._record_content(f"![{title_safe}]({original})\n")
@@ -1181,15 +1189,24 @@ class StreamProcessor(proc_base.BaseProcessor):
                     if self._tool_stream_enabled:
                         for kind, payload in self._handle_tool_stream(filtered):
                             if kind == "text":
+                                role_chunk = self._emit_role_once()
+                                if role_chunk is not None:
+                                    yield role_chunk
                                 self._record_content(payload)
                                 yield self._sse(payload)
                                 self._has_output_content = True
                             elif kind == "tool":
+                                role_chunk = self._emit_role_once()
+                                if role_chunk is not None:
+                                    yield role_chunk
                                 self._record_tool_call(payload)
                                 yield self._sse(tool_calls=[payload])
                                 self._has_output_content = True
                         continue
 
+                    role_chunk = self._emit_role_once()
+                    if role_chunk is not None:
+                        yield role_chunk
                     self._record_content(filtered)
                     yield self._sse(filtered)
                     self._has_output_content = True
@@ -1200,10 +1217,16 @@ class StreamProcessor(proc_base.BaseProcessor):
             if self._tool_stream_enabled:
                 for kind, payload in self._flush_tool_stream():
                     if kind == "text":
+                        role_chunk = self._emit_role_once()
+                        if role_chunk is not None:
+                            yield role_chunk
                         self._record_content(payload)
                         yield self._sse(payload)
                         self._has_output_content = True
                     elif kind == "tool":
+                        role_chunk = self._emit_role_once()
+                        if role_chunk is not None:
+                            yield role_chunk
                         self._record_tool_call(payload)
                         yield self._sse(tool_calls=[payload])
                         self._has_output_content = True
