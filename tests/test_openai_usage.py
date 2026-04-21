@@ -369,6 +369,50 @@ def test_x_message_assembly_header_rejects_invalid_value(monkeypatch, path, body
     assert payload["error"]["code"] == "invalid_message_assembly"
 
 
+def test_chat_completions_filters_empty_messages_before_validation(monkeypatch):
+    client = TestClient(_build_test_app())
+    captured = {}
+
+    async def fake_completions(**kwargs):
+        captured["messages"] = kwargs["messages"]
+        return {"ok": True}
+
+    monkeypatch.setattr("app.api.v1.chat.ChatService.completions", fake_completions)
+
+    response = client.post(
+        "/v1/chat/completions",
+        json={
+            "model": "grok-4",
+            "messages": [
+                {"role": "user", "content": "   "},
+                {"role": "assistant", "content": ""},
+                {"role": "user", "content": "hi"},
+            ],
+            "stream": False,
+        },
+    )
+
+    assert response.status_code == 200
+    assert captured["messages"] == [{"role": "user", "content": "hi"}]
+
+
+def test_chat_completions_rejects_when_all_messages_are_filtered():
+    client = TestClient(_build_test_app())
+
+    response = client.post(
+        "/v1/chat/completions",
+        json={
+            "model": "grok-4",
+            "messages": [{"role": "user", "content": "   "}],
+            "stream": False,
+        },
+    )
+
+    assert response.status_code == 400
+    payload = response.json()
+    assert payload["error"]["code"] == "empty_messages"
+
+
 @pytest.mark.parametrize(
     ("path", "body", "service_path", "expected_key"),
     [

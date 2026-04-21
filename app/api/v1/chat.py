@@ -303,6 +303,48 @@ def _validate_image_config(image_conf: ImageConfig, *, stream: bool):
             param="image_config.size",
             code="invalid_size",
         )
+
+
+def _is_empty_message_content(msg: MessageItem) -> bool:
+    """Return True only for messages that are clearly empty and safe to drop."""
+    if msg.role == "tool":
+        return False
+    if msg.role == "assistant" and msg.tool_calls:
+        return False
+
+    content = msg.content
+    if content is None:
+        return True
+
+    if isinstance(content, str):
+        return not content.strip()
+
+    if isinstance(content, dict):
+        item_type = content.get("type")
+        if item_type != "text":
+            return False
+        text = content.get("text", "")
+        return not isinstance(text, str) or not text.strip()
+
+    if isinstance(content, list):
+        if not content:
+            return True
+
+        for block in content:
+            if not isinstance(block, dict):
+                return False
+            block_type = block.get("type")
+            if block_type != "text":
+                return False
+            text = block.get("text", "")
+            if isinstance(text, str) and text.strip():
+                return False
+
+        return True
+
+    return False
+
+
 def validate_request(request: ChatCompletionRequest):
     """验证请求参数"""
     # 验证模型
@@ -311,6 +353,16 @@ def validate_request(request: ChatCompletionRequest):
             message=f"The model `{request.model}` does not exist or you do not have access to it.",
             param="model",
             code="model_not_found",
+        )
+
+    request.messages = [
+        msg for msg in request.messages if not _is_empty_message_content(msg)
+    ]
+    if not request.messages:
+        raise ValidationException(
+            message="At least one non-empty message is required",
+            param="messages",
+            code="empty_messages",
         )
 
     # 验证消息
