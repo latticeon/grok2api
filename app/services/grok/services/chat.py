@@ -518,6 +518,134 @@ class ChatService:
             show_think = reasoning_effort != "none"
         is_stream = stream if stream is not None else get_config("app.stream")
 
+        if is_stream:
+            async def _stream_with_token_retry():
+                tried_tokens = set()
+                max_token_retries = int(get_config("retry.max_retry") or 3)
+                last_error = None
+                role_already_sent = False
+
+                for attempt in range(max_token_retries):
+                    token = await pick_token(token_mgr, model, tried_tokens)
+                    if not token:
+                        if last_error:
+                            raise last_error
+                        raise AppException(
+                            message="No available tokens. Please try again later.",
+                            error_type=ErrorType.RATE_LIMIT.value,
+                            code="rate_limit_exceeded",
+                            status_code=429,
+                        )
+
+                    tried_tokens.add(token)
+                    processor: StreamProcessor | None = None
+
+                    try:
+                        service = GrokChatService()
+                        response, _, model_name, prompt_tokens = await service.chat_openai(
+                            token,
+                            model,
+                            messages,
+                            stream=True,
+                            reasoning_effort=reasoning_effort,
+                            temperature=temperature,
+                            top_p=top_p,
+                            tools=tools,
+                            tool_choice=tool_choice,
+                            parallel_tool_calls=parallel_tool_calls,
+                            message_assembly=message_assembly,
+                        )
+
+                        logger.debug(f"Processing stream response: model={model}")
+                        processor = StreamProcessor(
+                            model_name,
+                            token,
+                            show_think,
+                            tools=tools,
+                            tool_choice=tool_choice,
+                            prompt_tokens=prompt_tokens,
+                            role_sent=role_already_sent,
+                        )
+
+                        async for chunk in wrap_stream_with_usage(
+                            processor.process(response), token_mgr, token, model
+                        ):
+                            if processor.role_sent:
+                                role_already_sent = True
+                            yield chunk
+                        return
+
+                    except UpstreamException as e:
+                        last_error = e
+                        if processor and processor.has_output_content:
+                            raise
+
+                        error_status = e.details.get("status") if e.details else None
+
+                        if rate_limited(e):
+                            await token_mgr.mark_rate_limited(token)
+                            logger.warning(
+                                f"Token {token[:10]}... rate limited (429), "
+                                f"trying next token (attempt {attempt + 1}/{max_token_retries})"
+                            )
+                            continue
+
+                        if error_status and 400 <= error_status < 500:
+                            logger.warning(
+                                f"Token {token[:10]}... client error ({error_status}), "
+                                f"trying next token (attempt {attempt + 1}/{max_token_retries})"
+                            )
+                            await token_mgr.record_fail(
+                                token,
+                                status_code=error_status,
+                                reason=f"client_error_{error_status}",
+                            )
+                            continue
+
+                        if transient_upstream(e):
+                            has_alternative_token = False
+                            for pool_name in ModelService.pool_candidates_for_model(model):
+                                if token_mgr.get_token(pool_name, exclude=tried_tokens):
+                                    has_alternative_token = True
+                                    break
+                            if not has_alternative_token:
+                                raise
+                            logger.warning(
+                                f"Transient upstream error for token {token[:10]}..., "
+                                f"trying next token (attempt {attempt + 1}/{max_token_retries}): {e}"
+                            )
+                            continue
+
+                        raise
+
+                    except EmptyResponseError:
+                        if processor and processor.role_sent:
+                            role_already_sent = True
+                        logger.warning(
+                            f"Token {token[:10]}... returned empty response, "
+                            f"trying next token (attempt {attempt + 1}/{max_token_retries})"
+                        )
+                        await token_mgr.record_fail(
+                            token, status_code=0, reason="empty_response"
+                        )
+                        last_error = UpstreamException(
+                            message="Empty response from upstream",
+                            status_code=502,
+                            details={"error": "empty_response", "token": token[:10]},
+                        )
+                        continue
+
+                if last_error:
+                    raise last_error
+                raise AppException(
+                    message="No available tokens. Please try again later.",
+                    error_type=ErrorType.RATE_LIMIT.value,
+                    code="rate_limit_exceeded",
+                    status_code=429,
+                )
+
+            return _stream_with_token_retry()
+
         # 跨 Token 重试循环
         tried_tokens = set()
         max_token_retries = int(get_config("retry.max_retry") or 3)
@@ -675,6 +803,7 @@ class StreamProcessor(proc_base.BaseProcessor):
         tools: List[Dict[str, Any]] = None,
         tool_choice: Any = None,
         prompt_tokens: int = 0,
+        role_sent: bool = False,
     ):
         super().__init__(model, token)
         self.response_id: str = None
@@ -683,7 +812,7 @@ class StreamProcessor(proc_base.BaseProcessor):
         self.think_opened: bool = False
         self.image_think_active: bool = False
         self._content_started: bool = False
-        self.role_sent: bool = False
+        self.role_sent: bool = bool(role_sent)
         self.filter_tags = get_config("app.filter_tags")
         self.tool_usage_enabled = (
             "xai:tool_usage_card" in (self.filter_tags or [])
@@ -704,8 +833,12 @@ class StreamProcessor(proc_base.BaseProcessor):
         self._completion_parts: list[str] = []
         self._completion_tool_calls: list[dict[str, Any]] = []
 
-        # 跟踪是否收到了有效内容
-        self._has_content = False
+        # 仅统计真正可交付给客户端的正文/工具调用，不包含 thinking 过程内容。
+        self._has_output_content = False
+
+    @property
+    def has_output_content(self) -> bool:
+        return self._has_output_content
 
     def _record_content(self, content: str) -> None:
         if content:
@@ -957,7 +1090,6 @@ class StreamProcessor(proc_base.BaseProcessor):
                     yield self._sse(
                         f"正在生成第{idx}张图片中，当前进度{progress}%\n"
                     )
-                    self._has_content = True
                     continue
 
                 if mr := resp.get("modelResponse"):
@@ -974,7 +1106,7 @@ class StreamProcessor(proc_base.BaseProcessor):
                         )
                         self._record_content(f"{rendered}\n")
                         yield self._sse(f"{rendered}\n")
-                        self._has_content = True
+                        self._has_output_content = True
 
                     if (
                         (meta := mr.get("metadata", {}))
@@ -1003,7 +1135,7 @@ class StreamProcessor(proc_base.BaseProcessor):
                                 else:
                                     self._record_content(f"![image]({original})\n")
                                     yield self._sse(f"![image]({original})\n")
-                                self._has_content = True
+                                self._has_output_content = True
                     continue
 
                 if (token := resp.get("token")) is not None:
@@ -1039,12 +1171,11 @@ class StreamProcessor(proc_base.BaseProcessor):
                         if self.think_opened:
                             yield self._sse("\n</think>\n")
                             self.think_opened = False
-                            self._content_started = True
+                        self._content_started = True
 
                     if in_think:
                         self._record_content(filtered)
                         yield self._sse(filtered)
-                        self._has_content = True
                         continue
 
                     if self._tool_stream_enabled:
@@ -1052,16 +1183,16 @@ class StreamProcessor(proc_base.BaseProcessor):
                             if kind == "text":
                                 self._record_content(payload)
                                 yield self._sse(payload)
-                                self._has_content = True
+                                self._has_output_content = True
                             elif kind == "tool":
                                 self._record_tool_call(payload)
                                 yield self._sse(tool_calls=[payload])
-                                self._has_content = True
+                                self._has_output_content = True
                         continue
 
                     self._record_content(filtered)
                     yield self._sse(filtered)
-                    self._has_content = True
+                    self._has_output_content = True
 
             if self.think_opened:
                 yield self._sse("</think>\n")
@@ -1071,9 +1202,23 @@ class StreamProcessor(proc_base.BaseProcessor):
                     if kind == "text":
                         self._record_content(payload)
                         yield self._sse(payload)
+                        self._has_output_content = True
                     elif kind == "tool":
                         self._record_tool_call(payload)
                         yield self._sse(tool_calls=[payload])
+                        self._has_output_content = True
+
+            if not self._has_output_content:
+                logger.warning(
+                    f"Empty stream response detected for token {self.token[:10]}... (model={self.model})",
+                    extra={"model": self.model, "token": self.token[:10]},
+                )
+                raise EmptyResponseError(
+                    message="Empty stream response from upstream",
+                    token=self.token,
+                )
+
+            if self._tool_stream_enabled:
                 finish_reason = "tool_calls" if self._tool_calls_seen else "stop"
                 yield self._sse(
                     finish=finish_reason,
@@ -1094,19 +1239,6 @@ class StreamProcessor(proc_base.BaseProcessor):
                 )
 
             yield "data: [DONE]\n\n"
-            
-            # 检测空响应
-            if not self._has_content:
-                from app.core.exceptions import EmptyResponseError
-                logger.warning(
-                    f"Empty stream response detected for token {self.token[:10]}... (model={self.model})",
-                    extra={"model": self.model, "token": self.token[:10]}
-                )
-                raise EmptyResponseError(
-                    message="Empty stream response from upstream",
-                    token=self.token
-                )
-                
         except asyncio.CancelledError:
             logger.debug("Stream cancelled by client", extra={"model": self.model})
         except StreamIdleTimeoutError as e:
