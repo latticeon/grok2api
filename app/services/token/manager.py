@@ -684,10 +684,10 @@ class TokenManager:
 
     async def mark_rate_limited(self, token_str: str) -> bool:
         """
-        将 Token 标记为配额耗尽（COOLING）
+        记录命中了 429 限流
 
-        当 Grok API 返回 429 时调用，将 quota 设为 0 并标记 COOLING，
-        使该 Token 不再被选中，等待下次 Scheduler 刷新恢复。
+        当前仅用于请求链路中的逻辑停止/切换 token，不再持久化修改
+        quota 或 status，避免把 token 写成 cooling 状态。
 
         Args:
             token_str: Token 字符串
@@ -700,15 +700,10 @@ class TokenManager:
         for pool in self.pools.values():
             token = pool.get(raw_token)
             if token:
-                old_quota = token.quota
-                token.quota = 0
-                token.enter_cooling()
                 logger.warning(
-                    f"Token {raw_token[:10]}...: marked as rate limited "
-                    f"(quota {old_quota} -> 0, status -> cooling)"
+                    f"Token {raw_token[:10]}...: rate limited detected "
+                    "(keeping current quota/status, stop current retry path)"
                 )
-                self._track_token_change(token, pool.name, "state")
-                self._schedule_save()
                 return True
 
         logger.warning(f"Token {raw_token[:10]}...: not found for rate limit marking")

@@ -727,7 +727,7 @@ class ChatService:
                 error_status = e.details.get("status") if e.details else None
 
                 if rate_limited(e):
-                    # 配额不足，标记 token 为 cooling 并换 token 重试
+                    # 命中 429 后直接换 token 重试，不持久化修改当前 token 状态
                     await token_mgr.mark_rate_limited(token)
                     logger.warning(
                         f"Token {token[:10]}... rate limited (429), "
