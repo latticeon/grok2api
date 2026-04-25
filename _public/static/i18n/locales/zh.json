@@ -287,6 +287,7 @@
     "startImport": "开始导入",
     "editTitle": "编辑 Token",
     "addTitle": "添加 Token",
+    "testPrompt": "测试文本",
     "editType": "类型",
     "editQuota": "额度",
     "editNote": "备注",

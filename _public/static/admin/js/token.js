@@ -1387,6 +1387,7 @@ async function batchEnableNSFW() {
 // ========== Token 测试功能 ==========
 
 let testModelList = [];
+const DEFAULT_TEST_PROMPT = '你是谁？';
 
 async function loadTestModels() {
   const fallback = ['grok-3', 'grok-3-mini', 'grok-3-thinking', 'grok-4', 'grok-4-thinking', 'grok-4.1-mini', 'grok-4.1-fast', 'grok-4.20-beta'];
@@ -1427,6 +1428,10 @@ function openTestModal(token) {
   if (!modal) return;
   
   byId('test-token').value = token;
+  const promptInput = byId('test-prompt');
+  if (promptInput) {
+    promptInput.value = DEFAULT_TEST_PROMPT;
+  }
   
   // 填充模型列表
   populateTestModelSelect();
@@ -1459,6 +1464,10 @@ function closeTestModal() {
 async function executeTest() {
   const token = byId('test-token').value;
   const model = byId('test-model').value;
+  const promptInput = byId('test-prompt');
+  const message = (promptInput && typeof promptInput.value === 'string'
+    ? promptInput.value.trim()
+    : '') || DEFAULT_TEST_PROMPT;
   
   if (!token) {
     showToast(t('token.tokenEmpty'), 'error');
@@ -1478,7 +1487,7 @@ async function executeTest() {
         'Content-Type': 'application/json',
         ...buildAuthHeaders(apiKey)
       },
-      body: JSON.stringify({ token, model })
+      body: JSON.stringify({ token, model, message })
     });
     
     const data = await res.json();

@@ -16,6 +16,7 @@ from app.services.grok.batch_services.nsfw import NSFWService
 from app.services.token.manager import get_token_manager
 
 router = APIRouter()
+DEFAULT_TOKEN_TEST_MESSAGE = "你是谁？"
 
 _TOKEN_CHAR_REPLACEMENTS = str.maketrans(
     {
@@ -449,6 +450,7 @@ async def test_token(data: dict[str, Any]) -> dict[str, Any]:
     class TestRequest(BaseModel):
         token: str
         model: str = "grok-3"
+        message: str = DEFAULT_TOKEN_TEST_MESSAGE
     
     try:
         req = TestRequest(**data)
@@ -457,6 +459,7 @@ async def test_token(data: dict[str, Any]) -> dict[str, Any]:
             token = token[4:]
         
         model_id = req.model
+        test_message = req.message.strip() or DEFAULT_TOKEN_TEST_MESSAGE
         
         # 获取模型信息
         model_info = ModelService.get(model_id)
@@ -472,7 +475,7 @@ async def test_token(data: dict[str, Any]) -> dict[str, Any]:
         
         # 使用与正式请求相同的 payload 构建方式
         test_payload = AppChatReverse.build_payload(
-            message="test",
+            message=test_message,
             model=grok_model,
             mode=mode,
             file_attachments=[],

@@ -341,6 +341,14 @@
             <!-- 模型列表将通过 JS 动态加载 -->
           </select>
         </div>
+        <div>
+          <label class="modal-label mb-1 block" data-i18n="token.testPrompt">测试文本</label>
+          <textarea
+            id="test-prompt"
+            class="geist-input min-h-[96px] resize-y"
+            placeholder="你是谁？"
+          >你是谁？</textarea>
+        </div>
         <div class="flex justify-end gap-2 pt-2">
           <button onclick="closeTestModal()" class="geist-button-outline text-xs px-3" data-i18n="common.cancel">取消</button>
           <button onclick="executeTest()" id="btn-execute-test" class="geist-button text-xs px-3" data-i18n="token.startTest">开始测试</button>
