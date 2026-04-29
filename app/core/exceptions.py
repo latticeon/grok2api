@@ -116,10 +116,16 @@ class StreamIdleTimeoutError(Exception):
 
 
 class EmptyResponseError(Exception):
-    """空响应错误 - 用于标记账号返回空内容的情况"""
+    """响应内容不可用错误 - 用于标记账号返回空内容或可重试错误内容的情况"""
 
-    def __init__(self, message: str = "Empty response from upstream", token: str = ""):
+    def __init__(
+        self,
+        message: str = "Empty response from upstream",
+        token: str = "",
+        reason: str = "empty_response",
+    ):
         self.token = token
+        self.reason = reason
         super().__init__(message)
 
 

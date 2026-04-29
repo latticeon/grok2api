@@ -7,10 +7,20 @@ from fastapi.testclient import TestClient
 from types import SimpleNamespace
 
 from app.core.exceptions import EmptyResponseError, register_exception_handlers
-from app.services.grok.services.chat import ChatService, CollectProcessor, StreamProcessor
+from app.services.grok.services.chat import (
+    ChatService,
+    CollectProcessor,
+    MessageExtractor,
+    StreamProcessor,
+)
 from app.services.grok.services.responses import ResponsesService
 from app.api.v1.chat import router as chat_router
 from app.api.v1.response import router as response_router
+
+
+OVERLOADED_MESSAGE = (
+    "This model is overloaded right now. Please try again shortly or pick a different model."
+)
 
 
 def _json_line(payload: dict) -> bytes:
@@ -158,6 +168,86 @@ def test_stream_processor_empty_response_raises_before_done(monkeypatch):
     asyncio.run(_run())
 
 
+def test_collect_processor_overloaded_response_raises(monkeypatch):
+    monkeypatch.setattr(
+        "app.services.grok.services.chat.get_config",
+        lambda key, default=None: 0 if key == "chat.stream_timeout" else [],
+    )
+
+    async def _run():
+        processor = CollectProcessor("grok-4", token="tok1", prompt_tokens=11)
+        with pytest.raises(EmptyResponseError) as exc:
+            await processor.process(
+                _iter_lines(
+                    [
+                        _json_line(
+                            {
+                                "result": {
+                                    "response": {
+                                        "responseId": "resp_overloaded",
+                                        "llmInfo": {"modelHash": "fp_test"},
+                                        "modelResponse": {
+                                            "responseId": "resp_overloaded",
+                                            "message": OVERLOADED_MESSAGE,
+                                        },
+                                    }
+                                }
+                            }
+                        )
+                    ]
+                )
+            )
+
+        assert exc.value.reason == "overloaded_response"
+
+    asyncio.run(_run())
+
+
+def test_stream_processor_overloaded_response_raises_before_done(monkeypatch):
+    monkeypatch.setattr(
+        "app.services.grok.services.chat.get_config",
+        lambda key, default=None: 0 if key == "chat.stream_timeout" else [],
+    )
+
+    async def _run():
+        processor = StreamProcessor("grok-4", token="tok1", prompt_tokens=11)
+        chunks = []
+        with pytest.raises(EmptyResponseError) as exc:
+            async for chunk in processor.process(
+                _iter_lines(
+                    [
+                        _json_line(
+                            {
+                                "result": {
+                                    "response": {
+                                        "responseId": "resp_overloaded",
+                                        "llmInfo": {"modelHash": "fp_test"},
+                                        "token": "This model is overloaded right now. ",
+                                    }
+                                }
+                            }
+                        ),
+                        _json_line(
+                            {
+                                "result": {
+                                    "response": {
+                                        "responseId": "resp_overloaded",
+                                        "token": "Please try again shortly or pick a different model.",
+                                    }
+                                }
+                            }
+                        ),
+                    ]
+                )
+            ):
+                chunks.append(chunk)
+
+        assert chunks == []
+        assert exc.value.reason == "overloaded_response"
+
+    asyncio.run(_run())
+
+
 def test_chat_service_stream_retries_empty_response(monkeypatch):
     config_map = {
         "app.thinking": False,
@@ -278,6 +368,185 @@ def test_chat_service_stream_retries_empty_response(monkeypatch):
         assert chunks[-1] == "data: [DONE]\n\n"
         assert fake_mgr.record_fail_calls == [("tok1", 0, "empty_response")]
         assert fake_mgr.consume_calls == [("tok2", "low")]
+
+    asyncio.run(_run())
+
+
+def test_chat_service_retries_overloaded_response_for_stream_and_non_stream(monkeypatch):
+    config_map = {
+        "app.thinking": False,
+        "app.stream": True,
+        "retry.max_retry": 2,
+        "chat.stream_timeout": 0,
+        "app.filter_tags": [],
+    }
+    monkeypatch.setattr(
+        "app.services.grok.services.chat.get_config",
+        lambda key, default=None: config_map.get(key, default),
+    )
+
+    class FakeTokenManager:
+        def __init__(self):
+            self.record_fail_calls = []
+            self.consume_calls = []
+
+        async def reload_if_stale(self):
+            return None
+
+        async def record_fail(self, token, status_code=401, reason="", threshold=None):
+            self.record_fail_calls.append((token, status_code, reason))
+            return True
+
+        async def consume(self, token, effort):
+            self.consume_calls.append((token, getattr(effort, "value", effort)))
+            return True
+
+        async def mark_rate_limited(self, token):
+            raise AssertionError("mark_rate_limited should not be called")
+
+        def get_token(self, pool_name, exclude=None):
+            return None
+
+    fake_mgr = FakeTokenManager()
+
+    async def fake_get_token_manager():
+        return fake_mgr
+
+    async def fake_pick_token(token_mgr, model, tried_tokens):
+        if "tok1" not in tried_tokens:
+            return "tok1"
+        if "tok2" not in tried_tokens:
+            return "tok2"
+        return None
+
+    async def fake_chat_openai(
+        self,
+        token,
+        model,
+        messages,
+        stream=None,
+        reasoning_effort=None,
+        temperature=0.8,
+        top_p=0.95,
+        tools=None,
+        tool_choice=None,
+        parallel_tool_calls=True,
+        message_assembly=None,
+    ):
+        if token == "tok1":
+            if stream:
+                lines = [
+                    _json_line(
+                        {
+                            "result": {
+                                "response": {
+                                    "responseId": "resp_overloaded",
+                                    "llmInfo": {"modelHash": "fp_overloaded"},
+                                    "token": "This model is overloaded right now. ",
+                                }
+                            }
+                        }
+                    ),
+                    _json_line(
+                        {
+                            "result": {
+                                "response": {
+                                    "responseId": "resp_overloaded",
+                                    "token": "Please try again shortly or pick a different model.",
+                                }
+                            }
+                        }
+                    ),
+                ]
+            else:
+                lines = [
+                    _json_line(
+                        {
+                            "result": {
+                                "response": {
+                                    "responseId": "resp_overloaded",
+                                    "llmInfo": {"modelHash": "fp_overloaded"},
+                                    "modelResponse": {
+                                        "responseId": "resp_overloaded",
+                                        "message": OVERLOADED_MESSAGE,
+                                    },
+                                }
+                            }
+                        }
+                    )
+                ]
+        elif stream:
+            lines = [
+                _json_line(
+                    {
+                        "result": {
+                            "response": {
+                                "responseId": "resp_ok",
+                                "llmInfo": {"modelHash": "fp_ok"},
+                                "token": "Hello",
+                            }
+                        }
+                    }
+                )
+            ]
+        else:
+            lines = [
+                _json_line(
+                    {
+                        "result": {
+                            "response": {
+                                "responseId": "resp_ok",
+                                "llmInfo": {"modelHash": "fp_ok"},
+                                "modelResponse": {
+                                    "responseId": "resp_ok",
+                                    "message": "Hello",
+                                },
+                            }
+                        }
+                    }
+                )
+            ]
+        return _iter_lines(lines), bool(stream), model, 7
+
+    monkeypatch.setattr(
+        "app.services.grok.services.chat.get_token_manager",
+        fake_get_token_manager,
+    )
+    monkeypatch.setattr("app.services.grok.services.chat.pick_token", fake_pick_token)
+    monkeypatch.setattr(
+        "app.services.grok.services.chat.GrokChatService.chat_openai",
+        fake_chat_openai,
+    )
+    monkeypatch.setattr(
+        "app.services.grok.utils.stream.ModelService.get",
+        lambda model: SimpleNamespace(cost=SimpleNamespace(value="low")),
+    )
+
+    async def _run():
+        stream = await ChatService.completions(
+            model="grok-4",
+            messages=[{"role": "user", "content": "hi"}],
+            stream=True,
+        )
+        chunks = []
+        async for chunk in stream:
+            chunks.append(chunk)
+
+        assert any('"content":"Hello"' in chunk for chunk in chunks)
+        assert OVERLOADED_MESSAGE not in "".join(chunks)
+        assert chunks[-1] == "data: [DONE]\n\n"
+
+        result = await ChatService.completions(
+            model="grok-4",
+            messages=[{"role": "user", "content": "hi"}],
+            stream=False,
+        )
+        assert result["choices"][0]["message"]["content"] == "Hello"
+        assert fake_mgr.record_fail_calls == [
+            ("tok1", 0, "overloaded_response"),
+            ("tok1", 0, "overloaded_response"),
+        ]
+        assert fake_mgr.consume_calls == [("tok2", "low"), ("tok2", "low")]
 
     asyncio.run(_run())
 

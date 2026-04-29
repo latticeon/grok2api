@@ -39,6 +39,30 @@ from app.services.token import get_token_manager, EffortType
 
 _CHAT_SEMAPHORE = None
 _CHAT_SEM_VALUE = None
+_OVERLOADED_RESPONSE_MESSAGE = (
+    "This model is overloaded right now. Please try again shortly or pick a different model."
+)
+_OVERLOADED_RESPONSE_NORMALIZED = re.sub(
+    r"\s+",
+    " ",
+    _OVERLOADED_RESPONSE_MESSAGE,
+).strip().casefold()
+
+
+def _normalize_retryable_response_text(text: str) -> str:
+    return re.sub(r"\s+", " ", text or "").strip().casefold()
+
+
+def _is_overloaded_response_content(text: str) -> bool:
+    normalized = _normalize_retryable_response_text(text)
+    if not normalized:
+        return False
+    return normalized.rstrip(".") == _OVERLOADED_RESPONSE_NORMALIZED.rstrip(".")
+
+
+def _is_overloaded_response_prefix(text: str) -> bool:
+    normalized = _normalize_retryable_response_text(text)
+    return bool(normalized) and _OVERLOADED_RESPONSE_NORMALIZED.startswith(normalized)
 
 
 def extract_tool_text(raw: str, rollout_id: str = "") -> str:
@@ -618,20 +642,21 @@ class ChatService:
 
                         raise
 
-                    except EmptyResponseError:
+                    except EmptyResponseError as e:
                         if processor and processor.role_sent:
                             role_already_sent = True
+                        reason = getattr(e, "reason", "empty_response")
                         logger.warning(
-                            f"Token {token[:10]}... returned empty response, "
+                            f"Token {token[:10]}... returned retryable response ({reason}), "
                             f"trying next token (attempt {attempt + 1}/{max_token_retries})"
                         )
                         await token_mgr.record_fail(
-                            token, status_code=0, reason="empty_response"
+                            token, status_code=0, reason=reason
                         )
                         last_error = UpstreamException(
-                            message="Empty response from upstream",
+                            message=str(e) or "Retryable response content from upstream",
                             status_code=502,
-                            details={"error": "empty_response", "token": token[:10]},
+                            details={"error": reason, "token": token[:10]},
                         )
                         continue
 
@@ -766,18 +791,19 @@ class ChatService:
                 raise
                 
             except EmptyResponseError as e:
-                # 空响应，记录失败并换 token 重试
+                # 空响应或可重试错误内容，记录失败并换 token 重试
+                reason = getattr(e, "reason", "empty_response")
                 logger.warning(
-                    f"Token {token[:10]}... returned empty response, "
+                    f"Token {token[:10]}... returned retryable response ({reason}), "
                     f"trying next token (attempt {attempt + 1}/{max_token_retries})"
                 )
                 await token_mgr.record_fail(
-                    token, status_code=0, reason="empty_response"
+                    token, status_code=0, reason=reason
                 )
                 last_error = UpstreamException(
-                    message="Empty response from upstream",
+                    message=str(e) or "Retryable response content from upstream",
                     status_code=502,
-                    details={"error": "empty_response", "token": token[:10]},
+                    details={"error": reason, "token": token[:10]},
                 )
                 continue
 
@@ -832,6 +858,8 @@ class StreamProcessor(proc_base.BaseProcessor):
         self.prompt_tokens = max(0, int(prompt_tokens or 0))
         self._completion_parts: list[str] = []
         self._completion_tool_calls: list[dict[str, Any]] = []
+        self._retryable_content_guard_active = True
+        self._retryable_content_buffer = ""
 
         # 仅统计真正可交付给客户端的正文/工具调用，不包含 thinking 过程内容。
         self._has_output_content = False
@@ -853,6 +881,103 @@ class StreamProcessor(proc_base.BaseProcessor):
             return None
         self.role_sent = True
         return self._sse(role="assistant")
+
+    def _raise_overloaded_response(self) -> None:
+        logger.warning(
+            f"Overloaded response detected for token {self.token[:10]}... (model={self.model})",
+            extra={"model": self.model, "token": self.token[:10]},
+        )
+        raise EmptyResponseError(
+            message="Overloaded response from upstream",
+            token=self.token,
+            reason="overloaded_response",
+        )
+
+    def _guard_retryable_content(self, content: str) -> list[str]:
+        if not content:
+            return []
+        if self._has_output_content:
+            self._retryable_content_guard_active = False
+            self._retryable_content_buffer = ""
+            return [content]
+        if not self._retryable_content_guard_active:
+            return [content]
+
+        self._retryable_content_buffer += content
+        if _is_overloaded_response_content(self._retryable_content_buffer):
+            self._raise_overloaded_response()
+        if _is_overloaded_response_prefix(self._retryable_content_buffer):
+            return []
+
+        self._retryable_content_guard_active = False
+        content = self._retryable_content_buffer
+        self._retryable_content_buffer = ""
+        return [content]
+
+    def _flush_retryable_content_guard(self) -> list[str]:
+        if not self._retryable_content_guard_active:
+            return []
+        content = self._retryable_content_buffer
+        self._retryable_content_guard_active = False
+        self._retryable_content_buffer = ""
+        if not content:
+            return []
+        if _is_overloaded_response_content(content):
+            self._raise_overloaded_response()
+        return [content]
+
+    def _build_output_chunks(self, content: str) -> list[str]:
+        if not content:
+            return []
+
+        chunks: list[str] = []
+        if self._tool_stream_enabled:
+            for kind, payload in self._handle_tool_stream(content):
+                if kind == "text":
+                    role_chunk = self._emit_role_once()
+                    if role_chunk is not None:
+                        chunks.append(role_chunk)
+                    self._record_content(payload)
+                    chunks.append(self._sse(payload))
+                    self._has_output_content = True
+                elif kind == "tool":
+                    role_chunk = self._emit_role_once()
+                    if role_chunk is not None:
+                        chunks.append(role_chunk)
+                    self._record_tool_call(payload)
+                    chunks.append(self._sse(tool_calls=[payload]))
+                    self._has_output_content = True
+            return chunks
+
+        role_chunk = self._emit_role_once()
+        if role_chunk is not None:
+            chunks.append(role_chunk)
+        self._record_content(content)
+        chunks.append(self._sse(content))
+        self._has_output_content = True
+        return chunks
+
+    def _build_tool_flush_chunks(self) -> list[str]:
+        chunks: list[str] = []
+        if not self._tool_stream_enabled:
+            return chunks
+
+        for kind, payload in self._flush_tool_stream():
+            if kind == "text":
+                role_chunk = self._emit_role_once()
+                if role_chunk is not None:
+                    chunks.append(role_chunk)
+                self._record_content(payload)
+                chunks.append(self._sse(payload))
+                self._has_output_content = True
+            elif kind == "tool":
+                role_chunk = self._emit_role_once()
+                if role_chunk is not None:
+                    chunks.append(role_chunk)
+                self._record_tool_call(payload)
+                chunks.append(self._sse(tool_calls=[payload]))
+                self._has_output_content = True
+        return chunks
 
     def _with_tool_index(self, tool_call: Any) -> Any:
         if not isinstance(tool_call, dict):
@@ -1186,50 +1311,19 @@ class StreamProcessor(proc_base.BaseProcessor):
                         yield self._sse(filtered)
                         continue
 
-                    if self._tool_stream_enabled:
-                        for kind, payload in self._handle_tool_stream(filtered):
-                            if kind == "text":
-                                role_chunk = self._emit_role_once()
-                                if role_chunk is not None:
-                                    yield role_chunk
-                                self._record_content(payload)
-                                yield self._sse(payload)
-                                self._has_output_content = True
-                            elif kind == "tool":
-                                role_chunk = self._emit_role_once()
-                                if role_chunk is not None:
-                                    yield role_chunk
-                                self._record_tool_call(payload)
-                                yield self._sse(tool_calls=[payload])
-                                self._has_output_content = True
-                        continue
-
-                    role_chunk = self._emit_role_once()
-                    if role_chunk is not None:
-                        yield role_chunk
-                    self._record_content(filtered)
-                    yield self._sse(filtered)
-                    self._has_output_content = True
+                    for guarded in self._guard_retryable_content(filtered):
+                        for chunk in self._build_output_chunks(guarded):
+                            yield chunk
 
             if self.think_opened:
                 yield self._sse("</think>\n")
 
-            if self._tool_stream_enabled:
-                for kind, payload in self._flush_tool_stream():
-                    if kind == "text":
-                        role_chunk = self._emit_role_once()
-                        if role_chunk is not None:
-                            yield role_chunk
-                        self._record_content(payload)
-                        yield self._sse(payload)
-                        self._has_output_content = True
-                    elif kind == "tool":
-                        role_chunk = self._emit_role_once()
-                        if role_chunk is not None:
-                            yield role_chunk
-                        self._record_tool_call(payload)
-                        yield self._sse(tool_calls=[payload])
-                        self._has_output_content = True
+            for guarded in self._flush_retryable_content_guard():
+                for chunk in self._build_output_chunks(guarded):
+                    yield chunk
+
+            for chunk in self._build_tool_flush_chunks():
+                yield chunk
 
             if not self._has_output_content:
                 logger.warning(
@@ -1487,6 +1581,17 @@ class CollectProcessor(proc_base.BaseProcessor):
             content = "".join(fallback_tokens)
 
         content = self._filter_content(content)
+
+        if _is_overloaded_response_content(content):
+            logger.warning(
+                f"Overloaded response detected for token {self.token[:10]}... (model={self.model})",
+                extra={"model": self.model, "token": self.token[:10]},
+            )
+            raise EmptyResponseError(
+                message="Overloaded response from upstream",
+                token=self.token,
+                reason="overloaded_response",
+            )
         
         # 检测空响应
         if not content or not content.strip():
