@@ -18,8 +18,10 @@ const byId = (id) => document.getElementById(id);
 const qsa = (selector) => document.querySelectorAll(selector);
 const DEFAULT_QUOTA_BASIC = 80;
 const DEFAULT_QUOTA_SUPER = 140;
+const DEFAULT_QUOTA_HEAVY = 140;
 
 function getDefaultQuotaForPool(pool) {
+  if (pool === 'ssoHeavy') return DEFAULT_QUOTA_HEAVY;
   return pool === 'ssoSuper' ? DEFAULT_QUOTA_SUPER : DEFAULT_QUOTA_BASIC;
 }
 

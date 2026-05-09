@@ -107,12 +107,6 @@ def _extract_video_url(content: str) -> str:
 
 def _normalize_model(model: Optional[str]) -> str:
     requested = (model or VIDEO_MODEL_ID).strip()
-    if requested != VIDEO_MODEL_ID:
-        raise ValidationException(
-            message=f"The model `{VIDEO_MODEL_ID}` is required for video generation.",
-            param="model",
-            code="model_not_supported",
-        )
     model_info = ModelService.get(requested)
     if not model_info or not model_info.is_video:
         raise ValidationException(

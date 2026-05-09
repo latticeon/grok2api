@@ -36,10 +36,11 @@ SUPER_WINDOW_THRESHOLD_SECONDS = 14400
 
 SUPER_POOL_NAME = "ssoSuper"
 BASIC_POOL_NAME = "ssoBasic"
+HEAVY_POOL_NAME = "ssoHeavy"
 
 
 def _default_quota_for_pool(pool_name: str) -> int:
-    if pool_name == SUPER_POOL_NAME:
+    if pool_name in (SUPER_POOL_NAME, HEAVY_POOL_NAME):
         return SUPER_DEFAULT_QUOTA
     return BASIC__DEFAULT_QUOTA
 
@@ -114,7 +115,10 @@ class TokenManager:
                                 ):
                                     token_data["token"] = raw_token[4:]
                             token_info = TokenInfo(**token_data)
-                            if quota_missing and pool_name == SUPER_POOL_NAME:
+                            if quota_missing and pool_name in (
+                                SUPER_POOL_NAME,
+                                HEAVY_POOL_NAME,
+                            ):
                                 token_info.quota = SUPER_DEFAULT_QUOTA
                             pool.add(token_info)
                         except Exception as e:
@@ -894,7 +898,7 @@ class TokenManager:
         # 收集需要刷新的 token
         to_refresh: List[tuple[str, TokenInfo]] = []
         for pool in self.pools.values():
-            if pool.name == SUPER_POOL_NAME:
+            if pool.name in (SUPER_POOL_NAME, HEAVY_POOL_NAME):
                 interval_hours = get_config(
                     "token.super_refresh_interval_hours",
                     DEFAULT_SUPER_REFRESH_INTERVAL_HOURS,

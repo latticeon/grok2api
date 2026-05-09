@@ -107,10 +107,12 @@ class AppChatReverse:
     #   付费 SuperGrok 的多智能体模式需要 modeId 字段才能正常响应
     #   有 modeId 时不发 modelName/modelMode（浏览器前端逻辑）
     _MODE_ID_MAP = {
+        "MODEL_MODE_AUTO_ID": "auto",
         "MODEL_MODE_FAST": "fast",
         "MODEL_MODE_EXPERT": "expert",
         "MODEL_MODE_HEAVY": "heavy",
         "MODEL_MODE_GROK_420": "expert",
+        "MODEL_MODE_GROK_4_3": "grok-420-computer-use-sa",
         "MODEL_MODE_GROK_4_1_THINKING": "expert",
         "MODEL_MODE_GROK_4_1_MINI_THINKING": "expert",
     }
