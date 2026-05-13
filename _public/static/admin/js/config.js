@@ -56,6 +56,7 @@ const LOCALE_MAP = {
     "thinking": { title: "思维链", desc: "是否默认启用思维链输出。" },
     "dynamic_statsig": { title: "动态指纹", desc: "是否默认启用动态生成 Statsig 指纹。" },
     "custom_instruction": { title: "自定义指令", desc: "多行文本，会透传为 Grok 请求参数 customPersonality。" },
+    "auth_block_keywords": { title: "封禁关键词", desc: "手动追加账号失效关键词，一行一个；命中 401/403 JSON 响应时会直接判定失效。" },
     "message_assembly": { title: "消息组装方式", desc: "OpenAI messages 转发到 Grok 前的默认组装格式。" },
     "filter_tags": { title: "过滤标签", desc: "设置自动过滤 Grok 响应中的特殊标签。" }
   },
@@ -306,7 +307,7 @@ function buildTextareaInput(section, key, val, rows = 5) {
   const input = document.createElement('textarea');
   input.className = 'geist-input';
   input.rows = rows;
-  input.value = val || '';
+  input.value = Array.isArray(val) ? val.join('\n') : (val || '');
   setInputMeta(input, section, key);
   return { input, node: input };
 }
@@ -492,6 +493,9 @@ function buildFieldCard(section, key, val) {
   if (section === 'app' && key === 'custom_instruction') {
     built = buildTextareaInput(section, key, val, 6);
   }
+  else if (section === 'app' && key === 'auth_block_keywords') {
+    built = buildTextareaInput(section, key, val, 5);
+  }
   else if (typeof val === 'boolean') {
     built = buildBooleanInput(section, key, val);
   }
@@ -600,6 +604,11 @@ async function saveConfig() {
 
       if (input.type === 'checkbox') {
         val = input.checked;
+      } else if (s === 'app' && k === 'auth_block_keywords') {
+        val = val
+          .split(/\r?\n/)
+          .map(item => item.trim())
+          .filter(Boolean);
       } else if (input.dataset.type === 'json') {
         try { val = JSON.parse(val); } catch (e) { throw new Error(t('config.invalidJson', { field: getText(s, k).title })); }
       } else if (k === 'app_key' && val.trim() === '') {

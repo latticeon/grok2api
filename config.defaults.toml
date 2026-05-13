@@ -26,6 +26,8 @@ thinking = true
 dynamic_statsig = true
 # 自定义指令
 custom_instruction = ""
+# 额外封禁/失效关键词（每项一个完整关键词，供后台动态维护）
+auth_block_keywords = []
 # OpenAI messages 到 Grok message 的组装方式：
 # standard = 当前标准压平格式
 # json = 直接透传 messages 数组

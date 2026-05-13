@@ -411,6 +411,7 @@ curl http://localhost:8000/v1/videos \
 |  | `thinking` | 思维链 | 是否默认启用思维链输出。 | `true` |
 |  | `dynamic_statsig` | 动态指纹 | 是否动态生成 Statsig 指纹。 | `true` |
 |  | `custom_instruction` | 自定义指令 | 多行文本，透传为 Grok `customPersonality`。 | `""` |
+|  | `auth_block_keywords` | 封禁关键词 | 手动追加账号失效关键词列表，命中 401/403 JSON 响应时会直接判定失效。 | `[]` |
 |  | `message_assembly` | 消息组装方式 | OpenAI messages 转发到 Grok 前的默认组装方式；也可被请求头 `X-Message-Assembly` 按请求覆盖。 | `standard` |
 |  | `filter_tags` | 过滤标签 | 自动过滤 Grok 响应中的特殊标签。 | `["xaiartifact","xai:tool_usage_card","grok:render"]` |
 | **proxy** | `base_proxy_url` | 基础代理 URL | 代理请求到 Grok 官网的基础服务地址。 | `""` |

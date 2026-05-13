@@ -52,6 +52,24 @@ def _sanitize_proxy_config_payload(data: dict) -> dict:
     if not isinstance(data, dict):
         return data
     payload = dict(data)
+    app_cfg = payload.get("app")
+    if isinstance(app_cfg, dict) and "auth_block_keywords" in app_cfg:
+        raw_keywords = app_cfg.get("auth_block_keywords")
+        normalized_keywords: list[str] = []
+        if isinstance(raw_keywords, str):
+            candidates = raw_keywords.splitlines()
+        elif isinstance(raw_keywords, list):
+            candidates = raw_keywords
+        else:
+            candidates = []
+        for item in candidates:
+            text = _sanitize_proxy_text(item, remove_all_spaces=False).strip()
+            if text:
+                normalized_keywords.append(text)
+        app_copy = dict(app_cfg)
+        app_copy["auth_block_keywords"] = normalized_keywords
+        payload["app"] = app_copy
+
     proxy = payload.get("proxy")
     if not isinstance(proxy, dict):
         return payload

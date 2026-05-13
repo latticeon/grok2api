@@ -407,6 +407,7 @@ Config file: `data/config.toml`
 |  | `thinking` | Thinking | Enable reasoning output by default. | `true` |
 |  | `dynamic_statsig` | Dynamic statsig | Generate dynamic Statsig values. | `true` |
 |  | `custom_instruction` | Custom instruction | Multi-line text passed through as Grok `customPersonality`. | `""` |
+|  | `auth_block_keywords` | Blocked keywords | Extra account-expired keywords; matching 401/403 JSON responses are treated as immediate expiry. | `[]` |
 |  | `message_assembly` | Message assembly | Default assembly mode before forwarding OpenAI messages to Grok; can also be overridden per request with `X-Message-Assembly`. | `standard` |
 |  | `filter_tags` | Filter tags | Filter special tags in responses. | `["xaiartifact","xai:tool_usage_card","grok:render"]` |
 | **proxy** | `base_proxy_url` | Base proxy URL | Proxy to Grok web. | `""` |
