@@ -150,9 +150,7 @@ def create_app() -> FastAPI:
     app.include_router(
         image_router, prefix="/v1", dependencies=[Depends(verify_api_key)]
     )
-    app.include_router(
-        models_router, prefix="/v1", dependencies=[Depends(verify_api_key)]
-    )
+    app.include_router(models_router, prefix="/v1")
     app.include_router(
         responses_router, prefix="/v1", dependencies=[Depends(verify_api_key)]
     )
