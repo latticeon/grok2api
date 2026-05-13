@@ -17,6 +17,9 @@ from app.core.proxy_pool import (
 from app.core.exceptions import UpstreamException
 from app.services.reverse.utils.headers import build_headers
 from app.services.reverse.utils.retry import retry_on_status
+from app.services.reverse.utils.auth_detection import (
+    is_blocked_or_auth_expired_response,
+)
 
 RATE_LIMITS_API = "https://grok.com/rest/rate-limits"
 
@@ -86,12 +89,12 @@ class RateLimitsReverse:
                         is_cloudflare = True
                     
                     # 2. 如果是 401 或 403 且返回 JSON 内容包含认证失败关键字，则确认为 Token 过期
-                    if response.status_code in (401, 403) and "application/json" in content_type:
-                        # 增加 unauthenticated、bad-credentials、user is blocked 等更精确的关键字
-                        body_lower = resp_text.lower()
-                        auth_error_keywords = ["unauthorized", "not logged in", "unauthenticated", "bad-credentials", "bot abuse", "user is blocked"]
-                        if any(k in body_lower for k in auth_error_keywords):
-                            is_token_expired = True
+                    if is_blocked_or_auth_expired_response(
+                        response.status_code,
+                        content_type,
+                        resp_text,
+                    ):
+                        is_token_expired = True
                     # --- 识别逻辑结束 ---
 
                     logger.error(

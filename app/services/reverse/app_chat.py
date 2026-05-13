@@ -15,6 +15,9 @@ from app.core.exceptions import UpstreamException
 from app.services.token.service import TokenService
 from app.services.reverse.utils.headers import build_headers
 from app.services.reverse.utils.retry import extract_status_for_retry, retry_on_status
+from app.services.reverse.utils.auth_detection import (
+    is_blocked_or_auth_expired_response,
+)
 
 CHAT_API = "https://grok.com/rest/app-chat/conversations/new"
 _LAST_PROXY_LOG_STATE: tuple[str, str] | None = None
@@ -312,17 +315,27 @@ class AppChatReverse:
                 if response.status_code != 200:
                     content = await AppChatReverse._read_error_body(response)
                     content_type = str(response.headers.get("content-type", ""))
-
-                    logger.error(
-                        "AppChatReverse: Chat failed, %s, content_type=%s, body=%s",
+                    is_token_expired = is_blocked_or_auth_expired_response(
                         response.status_code,
                         content_type,
+                        content,
+                    )
+
+                    logger.error(
+                        "AppChatReverse: Chat failed, %s, content_type=%s, is_token_expired=%s, body=%s",
+                        response.status_code,
+                        content_type,
+                        is_token_expired,
                         content[:500],
                         extra={"error_type": "UpstreamException"},
                     )
                     raise UpstreamException(
                         message=f"AppChatReverse: Chat failed, {response.status_code}",
-                        details={"status": response.status_code, "body": content},
+                        details={
+                            "status": response.status_code,
+                            "body": content,
+                            "is_token_expired": is_token_expired,
+                        },
                     )
 
                 return response
@@ -361,12 +374,26 @@ class AppChatReverse:
                     status = e.details["status"]
                 else:
                     status = getattr(e, "status_code", None)
+                is_token_expired = (
+                    bool(e.details.get("is_token_expired"))
+                    if isinstance(e.details, dict)
+                    else False
+                )
                 # 401 认证失败和 403 权限错误都需要记录失败
                 if status in (401, 403):
                     try:
-                        await TokenService.record_fail(
-                            token, status, f"app_chat_error_{status}"
-                        )
+                        if is_token_expired:
+                            manager = await TokenService._get_manager()
+                            await manager.record_fail(
+                                token,
+                                status,
+                                f"app_chat_error_{status}",
+                                threshold=1,
+                            )
+                        else:
+                            await TokenService.record_fail(
+                                token, status, f"app_chat_error_{status}"
+                            )
                     except Exception:
                         pass
                 raise
