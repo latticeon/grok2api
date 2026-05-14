@@ -254,9 +254,9 @@
           </select>
         </div>
         <div>
-          <label class="modal-label mb-1 block" data-i18n="token.importTokenList">Token 列表 (每行一个)</label>
+          <label class="modal-label mb-1 block" data-i18n="token.importTokenList">Token 列表 (每行一个，支持邮箱格式)</label>
           <textarea id="import-text" class="geist-input font-mono h-48"
-            placeholder="粘贴 Token，一行一个..." data-i18n-placeholder="token.importPlaceholder"></textarea>
+            placeholder="支持 token、邮箱:token、邮箱:密码:token" data-i18n-placeholder="token.importPlaceholder"></textarea>
         </div>
         <div class="flex justify-end gap-2 pt-2">
           <button onclick="closeImportModal()" class="geist-button-outline text-xs px-3" data-i18n="common.cancel">取消</button>
