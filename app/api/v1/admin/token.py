@@ -1,5 +1,6 @@
 import asyncio
 import re
+from contextlib import asynccontextmanager
 from typing import Any
 
 import orjson
@@ -17,6 +18,7 @@ from app.services.token.manager import get_token_manager
 
 router = APIRouter()
 DEFAULT_TOKEN_TEST_MESSAGE = "你是谁？"
+DEFAULT_TOKEN_IMPORT_POOL = "ssoBasic"
 
 _TOKEN_CHAR_REPLACEMENTS = str.maketrans(
     {
@@ -44,6 +46,39 @@ def _sanitize_token_text(value) -> str:
     if token.startswith("sso="):
         token = token[4:]
     return token.encode("ascii", errors="ignore").decode("ascii")
+
+
+def _default_quota_for_pool(pool_name: str) -> int:
+    if pool_name in ("ssoSuper", "ssoHeavy"):
+        return 140
+    return 80
+
+
+def _parse_import_token_entry(line: Any) -> dict[str, str] | None:
+    raw = "" if line is None else str(line).strip()
+    if not raw:
+        return None
+
+    parts = [part.strip() for part in raw.split(":")]
+    if len(parts) == 3 and "@" in parts[0] and parts[2]:
+        return {
+            "token": _sanitize_token_text(parts[2]),
+            "note": parts[0],
+        }
+    if len(parts) == 2 and "@" in parts[0] and parts[1]:
+        return {
+            "token": _sanitize_token_text(parts[1]),
+            "note": parts[0],
+        }
+    return {
+        "token": _sanitize_token_text(raw),
+        "note": "",
+    }
+
+
+@asynccontextmanager
+async def _noop_lock():
+    yield
 
 
 @router.get("/tokens", dependencies=[Depends(verify_app_key)])
@@ -132,6 +167,78 @@ async def update_tokens(data: dict):
             mgr = await get_token_manager()
             await mgr.reload()
         return {"status": "success", "message": "Token 已更新"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/tokens/import", dependencies=[Depends(verify_app_key)])
+async def import_tokens(data: dict):
+    """批量导入 Token，支持 token / 邮箱:token / 邮箱:密码:token"""
+    storage = get_storage()
+    try:
+        pool_name = str(data.get("pool") or DEFAULT_TOKEN_IMPORT_POOL).strip()
+        text = "" if data.get("text") is None else str(data.get("text"))
+        lines = text.splitlines()
+
+        lock_ctx = storage.acquire_lock("tokens_save", timeout=10)
+        if lock_ctx is None:
+            lock_ctx = _noop_lock()
+
+        async with lock_ctx:
+            existing = await storage.load_tokens() or {}
+            existing_tokens = set()
+            for tokens in existing.values():
+                if not isinstance(tokens, list):
+                    continue
+                for item in tokens:
+                    if isinstance(item, str):
+                        token_value = _sanitize_token_text(item)
+                    elif isinstance(item, dict):
+                        token_value = _sanitize_token_text(item.get("token"))
+                    else:
+                        continue
+                    if token_value:
+                        existing_tokens.add(token_value)
+
+            target_list = existing.setdefault(pool_name, [])
+            added = 0
+            skipped = 0
+
+            for line in lines:
+                parsed = _parse_import_token_entry(line)
+                if not parsed or not parsed.get("token"):
+                    skipped += 1
+                    continue
+                token_value = parsed["token"]
+                if token_value in existing_tokens:
+                    skipped += 1
+                    continue
+
+                target_list.append(
+                    {
+                        "token": token_value,
+                        "status": "active",
+                        "quota": _default_quota_for_pool(pool_name),
+                        "consumed": 0,
+                        "note": parsed["note"],
+                        "tags": [],
+                        "fail_count": 0,
+                        "use_count": 0,
+                    }
+                )
+                existing_tokens.add(token_value)
+                added += 1
+
+            await storage.save_tokens(existing)
+            mgr = await get_token_manager()
+            await mgr.reload()
+
+        return {
+            "status": "success",
+            "message": "Token 已更新",
+            "added": added,
+            "skipped": skipped,
+        }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
