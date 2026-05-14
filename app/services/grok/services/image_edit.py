@@ -33,7 +33,7 @@ from app.services.grok.utils.retry import pick_token, rate_limited
 from app.services.grok.utils.response import make_response_id, make_chat_chunk, wrap_image_content
 from app.services.grok.services.chat import GrokChatService
 from app.services.grok.utils.stream import wrap_stream_with_usage
-from app.services.token import EffortType
+from app.services.token import EffortType, format_token_for_log
 
 _EDIT_UPSTREAM_MODEL = "grok-4"
 _EDIT_UPSTREAM_MODE = "MODEL_MODE_AUTO"
@@ -152,7 +152,7 @@ class ImageEditService:
                 if rate_limited(e):
                     await token_mgr.mark_rate_limited(current_token)
                     logger.warning(
-                        f"Token {current_token[:10]}... rate limited (429), "
+                        f"Token {format_token_for_log(current_token)} rate limited (429), "
                         f"trying next token (attempt {attempt + 1}/{max_token_retries})"
                     )
                     continue

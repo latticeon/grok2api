@@ -36,7 +36,7 @@ from app.services.reverse.media_post import MediaPostReverse
 from app.services.reverse.media_post_link import MediaPostLinkReverse
 from app.services.reverse.utils.session import ResettableSession
 from app.services.reverse.video_upscale import VideoUpscaleReverse
-from app.services.token import EffortType, get_token_manager
+from app.services.token import EffortType, get_token_manager, format_token_for_log
 from app.services.token.manager import BASIC_POOL_NAME
 
 _VIDEO_SEMAPHORE = None
@@ -1285,7 +1285,7 @@ class VideoService:
                 if rate_limited(e):
                     await token_mgr.mark_rate_limited(token)
                     logger.warning(
-                        f"Token {token[:10]}... rate limited (429), "
+                        f"Token {format_token_for_log(token)} rate limited (429), "
                         f"trying next token (attempt {attempt + 1}/{max_token_retries})"
                     )
                     continue

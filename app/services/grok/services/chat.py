@@ -34,7 +34,7 @@ from app.services.grok.utils.tool_call import (
     format_tool_history,
 )
 from app.services.grok.utils.usage import estimate_chat_usage, estimate_prompt_tokens
-from app.services.token import get_token_manager, EffortType
+from app.services.token import get_token_manager, EffortType, format_token_for_log
 
 
 _CHAT_SEMAPHORE = None
@@ -609,14 +609,14 @@ class ChatService:
                         if rate_limited(e):
                             await token_mgr.mark_rate_limited(token)
                             logger.warning(
-                                f"Token {token[:10]}... rate limited (429), "
+                                f"Token {format_token_for_log(token)} rate limited (429), "
                                 f"trying next token (attempt {attempt + 1}/{max_token_retries})"
                             )
                             continue
 
                         if error_status and 400 <= error_status < 500:
                             logger.warning(
-                                f"Token {token[:10]}... client error ({error_status}), "
+                                f"Token {format_token_for_log(token)} client error ({error_status}), "
                                 f"trying next token (attempt {attempt + 1}/{max_token_retries})"
                             )
                             await token_mgr.record_fail(
@@ -635,7 +635,7 @@ class ChatService:
                             if not has_alternative_token:
                                 raise
                             logger.warning(
-                                f"Transient upstream error for token {token[:10]}..., "
+                                f"Transient upstream error for token {format_token_for_log(token)}, "
                                 f"trying next token (attempt {attempt + 1}/{max_token_retries}): {e}"
                             )
                             continue
@@ -647,7 +647,7 @@ class ChatService:
                             role_already_sent = True
                         reason = getattr(e, "reason", "empty_response")
                         logger.warning(
-                            f"Token {token[:10]}... returned retryable response ({reason}), "
+                            f"Token {format_token_for_log(token)} returned retryable response ({reason}), "
                             f"trying next token (attempt {attempt + 1}/{max_token_retries})"
                         )
                         await token_mgr.record_fail(
@@ -656,7 +656,7 @@ class ChatService:
                         last_error = UpstreamException(
                             message=str(e) or "Retryable response content from upstream",
                             status_code=502,
-                            details={"error": reason, "token": token[:10]},
+                            details={"error": reason, "token": format_token_for_log(token)},
                         )
                         continue
 
@@ -755,7 +755,7 @@ class ChatService:
                     # 命中 429 后直接换 token 重试，不持久化修改当前 token 状态
                     await token_mgr.mark_rate_limited(token)
                     logger.warning(
-                        f"Token {token[:10]}... rate limited (429), "
+                        f"Token {format_token_for_log(token)} rate limited (429), "
                         f"trying next token (attempt {attempt + 1}/{max_token_retries})"
                     )
                     continue
@@ -764,7 +764,7 @@ class ChatService:
                 # 这是兜底方案，确保所有 4xx 错误都会触发 token 切换
                 if error_status and 400 <= error_status < 500:
                     logger.warning(
-                        f"Token {token[:10]}... client error ({error_status}), "
+                        f"Token {format_token_for_log(token)} client error ({error_status}), "
                         f"trying next token (attempt {attempt + 1}/{max_token_retries})"
                     )
                     await token_mgr.record_fail(
@@ -782,7 +782,7 @@ class ChatService:
                     if not has_alternative_token:
                         raise
                     logger.warning(
-                        f"Transient upstream error for token {token[:10]}..., "
+                        f"Transient upstream error for token {format_token_for_log(token)}, "
                         f"trying next token (attempt {attempt + 1}/{max_token_retries}): {e}"
                     )
                     continue
@@ -794,7 +794,7 @@ class ChatService:
                 # 空响应或可重试错误内容，记录失败并换 token 重试
                 reason = getattr(e, "reason", "empty_response")
                 logger.warning(
-                    f"Token {token[:10]}... returned retryable response ({reason}), "
+                    f"Token {format_token_for_log(token)} returned retryable response ({reason}), "
                     f"trying next token (attempt {attempt + 1}/{max_token_retries})"
                 )
                 await token_mgr.record_fail(
@@ -803,7 +803,7 @@ class ChatService:
                 last_error = UpstreamException(
                     message=str(e) or "Retryable response content from upstream",
                     status_code=502,
-                    details={"error": reason, "token": token[:10]},
+                    details={"error": reason, "token": format_token_for_log(token)},
                 )
                 continue
 
@@ -884,8 +884,8 @@ class StreamProcessor(proc_base.BaseProcessor):
 
     def _raise_overloaded_response(self) -> None:
         logger.warning(
-            f"Overloaded response detected for token {self.token[:10]}... (model={self.model})",
-            extra={"model": self.model, "token": self.token[:10]},
+            f"Overloaded response detected for token {format_token_for_log(self.token)} (model={self.model})",
+            extra={"model": self.model, "token": format_token_for_log(self.token)},
         )
         raise EmptyResponseError(
             message="Overloaded response from upstream",
@@ -1327,8 +1327,8 @@ class StreamProcessor(proc_base.BaseProcessor):
 
             if not self._has_output_content:
                 logger.warning(
-                    f"Empty stream response detected for token {self.token[:10]}... (model={self.model})",
-                    extra={"model": self.model, "token": self.token[:10]},
+                    f"Empty stream response detected for token {format_token_for_log(self.token)} (model={self.model})",
+                    extra={"model": self.model, "token": format_token_for_log(self.token)},
                 )
                 raise EmptyResponseError(
                     message="Empty stream response from upstream",
@@ -1584,8 +1584,8 @@ class CollectProcessor(proc_base.BaseProcessor):
 
         if _is_overloaded_response_content(content):
             logger.warning(
-                f"Overloaded response detected for token {self.token[:10]}... (model={self.model})",
-                extra={"model": self.model, "token": self.token[:10]},
+                f"Overloaded response detected for token {format_token_for_log(self.token)} (model={self.model})",
+                extra={"model": self.model, "token": format_token_for_log(self.token)},
             )
             raise EmptyResponseError(
                 message="Overloaded response from upstream",
@@ -1596,8 +1596,8 @@ class CollectProcessor(proc_base.BaseProcessor):
         # 检测空响应
         if not content or not content.strip():
             logger.warning(
-                f"Empty response detected for token {self.token[:10]}... (model={self.model})",
-                extra={"model": self.model, "token": self.token[:10]}
+                f"Empty response detected for token {format_token_for_log(self.token)} (model={self.model})",
+                extra={"model": self.model, "token": format_token_for_log(self.token)}
             )
             raise EmptyResponseError(
                 message="Empty response from upstream",

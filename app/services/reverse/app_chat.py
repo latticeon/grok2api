@@ -322,7 +322,7 @@ class AppChatReverse:
                     )
 
                     logger.error(
-                        "AppChatReverse: Chat failed, %s, content_type=%s, is_token_expired=%s, body=%s",
+                        "AppChatReverse: Chat failed, {}, content_type={}, is_token_expired={}, body={}",
                         response.status_code,
                         content_type,
                         is_token_expired,

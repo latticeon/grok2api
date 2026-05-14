@@ -25,7 +25,7 @@ from app.services.grok.services.image_edit import (
     ImageStreamProcessor as AppChatImageStreamProcessor,
     ImageCollectProcessor as AppChatImageCollectProcessor,
 )
-from app.services.token import EffortType
+from app.services.token import EffortType, format_token_for_log
 from app.services.reverse.ws_imagine import ImagineWebSocketReverse
 
 
@@ -145,7 +145,7 @@ class ImageGenerationService:
                                 raise
                             await token_mgr.mark_rate_limited(current_token)
                             logger.warning(
-                                f"Token {current_token[:10]}... rate limited (429), "
+                                f"Token {format_token_for_log(current_token)} rate limited (429), "
                                 f"trying next token (attempt {attempt + 1}/{max_token_retries})"
                             )
                             continue
@@ -216,7 +216,7 @@ class ImageGenerationService:
                 if rate_limited(e):
                     await token_mgr.mark_rate_limited(current_token)
                     logger.warning(
-                        f"Token {current_token[:10]}... rate limited (429), "
+                        f"Token {format_token_for_log(current_token)} rate limited (429), "
                         f"trying next token (attempt {attempt + 1}/{max_token_retries})"
                     )
                     continue

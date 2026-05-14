@@ -6,7 +6,7 @@ from typing import AsyncGenerator
 
 from app.core.logger import logger
 from app.services.grok.services.model import ModelService
-from app.services.token import EffortType
+from app.services.token import EffortType, format_token_for_log
 
 
 async def wrap_stream_with_usage(
@@ -37,7 +37,7 @@ async def wrap_stream_with_usage(
                 )
                 await token_mgr.consume(token, effort)
                 logger.debug(
-                    f"Stream completed, recorded usage for token {token[:10]}... (effort={effort.value})"
+                    f"Stream completed, recorded usage for token {format_token_for_log(token)} (effort={effort.value})"
                 )
             except Exception as e:
                 logger.warning(f"Failed to record stream usage: {e}")

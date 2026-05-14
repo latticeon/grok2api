@@ -10,6 +10,7 @@ from app.core.config import get_config
 from app.services.reverse.rate_limits import RateLimitsReverse
 from app.services.reverse.utils.session import ResettableSession
 from app.core.batch import run_batch
+from app.services.token import format_token_for_log
 
 _USAGE_SEMAPHORE = None
 _USAGE_SEM_VALUE = None
@@ -56,13 +57,13 @@ class UsageService:
                     if remaining is not None:
                         data["remainingTokens"] = remaining
                 logger.debug(
-                    f"Usage sync success: remaining={remaining}, token={token[:10]}..."
+                    f"Usage sync success: remaining={remaining}, token={format_token_for_log(token)}"
                 )
                 return data
 
             except Exception as e:
                 # 最后一次失败已经被记录
-                logger.debug(f"UsageService.get failed for token {token[:10]}...: {str(e)}")
+                logger.debug(f"UsageService.get failed for token {format_token_for_log(token)}: {str(e)}")
                 raise
 
 
