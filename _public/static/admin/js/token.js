@@ -785,20 +785,6 @@ function closeImportModal() {
   });
 }
 
-function parseImportedTokenLine(line) {
-  const raw = (line || '').trim();
-  if (!raw) return null;
-
-  const parts = raw.split(':').map(part => part.trim());
-  if (parts.length === 3 && parts[0] && parts[0].includes('@') && parts[2]) {
-    return { token: parts[2], note: parts[0] };
-  }
-  if (parts.length === 2 && parts[0] && parts[0].includes('@') && parts[1]) {
-    return { token: parts[1], note: parts[0] };
-  }
-  return { token: raw, note: '' };
-}
-
 async function submitImport() {
   const pool = byId('import-pool').value.trim() || 'ssoBasic';
   const text = byId('import-text').value;
@@ -806,15 +792,15 @@ async function submitImport() {
   const defaultQuota = getDefaultQuotaForPool(pool);
 
   lines.forEach(line => {
-    const parsed = parseImportedTokenLine(line);
-    if (parsed && !flatTokens.some(ft => ft.token === parsed.token)) {
+    const t = line.trim();
+    if (t && !flatTokens.some(ft => ft.token === t)) {
       flatTokens.push({
-        token: parsed.token,
+        token: t,
         pool: pool,
         status: 'active',
         quota: defaultQuota,
         consumed: 0,
-        note: parsed.note,
+        note: '',
         tags: [],
         fail_count: 0,
         use_count: 0,
