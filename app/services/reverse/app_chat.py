@@ -379,8 +379,10 @@ class AppChatReverse:
                     if isinstance(e.details, dict)
                     else False
                 )
-                # 401 认证失败和 403 权限错误都需要记录失败
-                if status in (401, 403):
+                # 命中封禁关键词时，允许后台配置的 4xx 状态码直接触发失效；
+                # 其余 401/403 继续沿用原有失败记录逻辑。
+                should_record_fail = bool(is_token_expired) or status in (401, 403)
+                if should_record_fail:
                     try:
                         if is_token_expired:
                             manager = await TokenService._get_manager()
