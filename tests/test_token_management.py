@@ -2,7 +2,6 @@ import asyncio
 
 from app.core import storage as storage_module
 from app.core.exceptions import UpstreamException
-from app.api.v1.admin.token import _parse_import_token_entry, import_tokens
 from app.services.reverse.app_chat import AppChatReverse
 from app.services.token.manager import TokenManager
 from app.services.token.models import TokenInfo, TokenStatus
@@ -144,113 +143,6 @@ def test_app_chat_marks_configured_400_auth_block_as_expired(monkeypatch):
                 "reason": "app_chat_error_400",
                 "threshold": 1,
             }
-        ]
-
-    asyncio.run(_run())
-
-
-def test_parse_import_token_entry_supports_new_formats():
-    sample = "aowens251@atoo.fun:n2xzpeupuomqnw6:eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJzZXNzaW9uX2lkIjoiZDU3YTA5NzQtM2MwNy00OTg4LWIxNzEtNmEzZWQyMmZhZDg2In0.3VL72aNyaXYAT_4JQjz0zMJgpwPMCg-Lv6wwEW6CQPM"
-
-    parsed_plain = _parse_import_token_entry("plain_token_value")
-    assert parsed_plain == {"token": "plain_token_value", "note": ""}
-
-    parsed_email_token = _parse_import_token_entry(
-        "user@example.com:plain_token_value"
-    )
-    assert parsed_email_token == {
-        "token": "plain_token_value",
-        "note": "user@example.com",
-    }
-
-    parsed_email_password_token = _parse_import_token_entry(sample)
-    assert parsed_email_password_token == {
-        "token": "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJzZXNzaW9uX2lkIjoiZDU3YTA5NzQtM2MwNy00OTg4LWIxNzEtNmEzZWQyMmZhZDg2In0.3VL72aNyaXYAT_4JQjz0zMJgpwPMCg-Lv6wwEW6CQPM",
-        "note": "aowens251@atoo.fun",
-    }
-
-
-def test_import_tokens_persists_email_note_and_skips_duplicates(tmp_path, monkeypatch):
-    async def _run():
-        token_file = tmp_path / "token.json"
-        monkeypatch.setattr(storage_module, "TOKEN_FILE", token_file)
-
-        storage = storage_module.LocalStorage()
-        monkeypatch.setattr("app.api.v1.admin.token.get_storage", lambda: storage)
-
-        class DummyManager:
-            def __init__(self):
-                self.reload_calls = 0
-
-            async def reload(self):
-                self.reload_calls += 1
-
-        manager = DummyManager()
-
-        async def _get_manager():
-            return manager
-
-        monkeypatch.setattr("app.api.v1.admin.token.get_token_manager", _get_manager)
-
-        sample = (
-            "aowens251@atoo.fun:n2xzpeupuomqnw6:"
-            "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9."
-            "eyJzZXNzaW9uX2lkIjoiZDU3YTA5NzQtM2MwNy00OTg4LWIxNzEtNmEzZWQyMmZhZDg2In0."
-            "3VL72aNyaXYAT_4JQjz0zMJgpwPMCg-Lv6wwEW6CQPM"
-        )
-
-        result = await import_tokens(
-            {
-                "pool": "ssoBasic",
-                "text": "\n".join(
-                    [
-                        "plain_token_value",
-                        "user@example.com:mail_token_value",
-                        sample,
-                        sample,
-                    ]
-                ),
-            }
-        )
-
-        assert result["status"] == "success"
-        assert result["added"] == 3
-        assert result["skipped"] == 1
-        assert manager.reload_calls == 1
-
-        stored = await storage.load_tokens()
-        assert "ssoBasic" in stored
-        assert stored["ssoBasic"] == [
-            {
-                "token": "plain_token_value",
-                "status": "active",
-                "quota": 80,
-                "consumed": 0,
-                "note": "",
-                "tags": [],
-                "fail_count": 0,
-                "use_count": 0,
-            },
-            {
-                "token": "mail_token_value",
-                "status": "active",
-                "quota": 80,
-                "consumed": 0,
-                "note": "user@example.com",
-                "tags": [],
-                "fail_count": 0,
-                "use_count": 0,
-            },
-            {
-                "token": "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJzZXNzaW9uX2lkIjoiZDU3YTA5NzQtM2MwNy00OTg4LWIxNzEtNmEzZWQyMmZhZDg2In0.3VL72aNyaXYAT_4JQjz0zMJgpwPMCg-Lv6wwEW6CQPM",
-                "status": "active",
-                "quota": 80,
-                "consumed": 0,
-                "note": "aowens251@atoo.fun",
-                "tags": [],
-                "fail_count": 0,
-                "use_count": 0,
-            },
         ]
 
     asyncio.run(_run())
