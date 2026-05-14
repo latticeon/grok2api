@@ -33,7 +33,8 @@ from app.services.grok.utils.retry import pick_token, rate_limited
 from app.services.grok.utils.response import make_response_id, make_chat_chunk, wrap_image_content
 from app.services.grok.services.chat import GrokChatService
 from app.services.grok.utils.stream import wrap_stream_with_usage
-from app.services.token import EffortType, format_token_for_log
+from app.services.token import EffortType
+from app.services.token.utils import format_token_for_log
 
 _EDIT_UPSTREAM_MODEL = "grok-4"
 _EDIT_UPSTREAM_MODE = "MODEL_MODE_AUTO"

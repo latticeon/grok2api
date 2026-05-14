@@ -34,7 +34,8 @@ from app.services.grok.utils.tool_call import (
     format_tool_history,
 )
 from app.services.grok.utils.usage import estimate_chat_usage, estimate_prompt_tokens
-from app.services.token import get_token_manager, EffortType, format_token_for_log
+from app.services.token import get_token_manager, EffortType
+from app.services.token.utils import format_token_for_log
 
 
 _CHAT_SEMAPHORE = None

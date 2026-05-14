@@ -6,7 +6,8 @@ from typing import AsyncGenerator
 
 from app.core.logger import logger
 from app.services.grok.services.model import ModelService
-from app.services.token import EffortType, format_token_for_log
+from app.services.token import EffortType
+from app.services.token.utils import format_token_for_log
 
 
 async def wrap_stream_with_usage(

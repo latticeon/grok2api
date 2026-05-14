@@ -25,7 +25,8 @@ from app.services.grok.services.image_edit import (
     ImageStreamProcessor as AppChatImageStreamProcessor,
     ImageCollectProcessor as AppChatImageCollectProcessor,
 )
-from app.services.token import EffortType, format_token_for_log
+from app.services.token import EffortType
+from app.services.token.utils import format_token_for_log
 from app.services.reverse.ws_imagine import ImagineWebSocketReverse
 
 

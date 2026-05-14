@@ -10,7 +10,7 @@ from app.core.config import get_config
 from app.services.reverse.rate_limits import RateLimitsReverse
 from app.services.reverse.utils.session import ResettableSession
 from app.core.batch import run_batch
-from app.services.token import format_token_for_log
+from app.services.token.utils import format_token_for_log
 
 _USAGE_SEMAPHORE = None
 _USAGE_SEM_VALUE = None
