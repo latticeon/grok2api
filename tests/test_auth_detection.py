@@ -1,4 +1,5 @@
 from app.services.reverse.utils.auth_detection import (
+    get_auth_error_status_codes,
     get_auth_error_keywords,
     is_blocked_or_auth_expired_response,
 )
@@ -33,4 +34,20 @@ def test_configured_keywords_are_loaded(monkeypatch):
         403,
         "application/json",
         '{"error":{"message":"custom blocked marker"}}',
+    )
+
+
+def test_configured_status_codes_are_loaded(monkeypatch):
+    monkeypatch.setattr(
+        "app.services.reverse.utils.auth_detection.get_config",
+        lambda key, default=None: [401, 403, 451]
+        if key == "app.auth_block_status_codes"
+        else default,
+    )
+
+    assert 451 in get_auth_error_status_codes()
+    assert is_blocked_or_auth_expired_response(
+        451,
+        "application/json",
+        '{"error":{"message":"User is blocked"}}',
     )

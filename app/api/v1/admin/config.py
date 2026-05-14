@@ -53,21 +53,47 @@ def _sanitize_proxy_config_payload(data: dict) -> dict:
         return data
     payload = dict(data)
     app_cfg = payload.get("app")
-    if isinstance(app_cfg, dict) and "auth_block_keywords" in app_cfg:
-        raw_keywords = app_cfg.get("auth_block_keywords")
-        normalized_keywords: list[str] = []
-        if isinstance(raw_keywords, str):
-            candidates = raw_keywords.splitlines()
-        elif isinstance(raw_keywords, list):
-            candidates = raw_keywords
-        else:
-            candidates = []
-        for item in candidates:
-            text = _sanitize_proxy_text(item, remove_all_spaces=False).strip()
-            if text:
-                normalized_keywords.append(text)
+    if isinstance(app_cfg, dict) and (
+        "auth_block_keywords" in app_cfg or "auth_block_status_codes" in app_cfg
+    ):
         app_copy = dict(app_cfg)
-        app_copy["auth_block_keywords"] = normalized_keywords
+
+        if "auth_block_keywords" in app_copy:
+            raw_keywords = app_copy.get("auth_block_keywords")
+            normalized_keywords: list[str] = []
+            if isinstance(raw_keywords, str):
+                candidates = raw_keywords.splitlines()
+            elif isinstance(raw_keywords, list):
+                candidates = raw_keywords
+            else:
+                candidates = []
+            for item in candidates:
+                text = _sanitize_proxy_text(item, remove_all_spaces=False).strip()
+                if text:
+                    normalized_keywords.append(text)
+            app_copy["auth_block_keywords"] = normalized_keywords
+
+        if "auth_block_status_codes" in app_copy:
+            raw_codes = app_copy.get("auth_block_status_codes")
+            normalized_codes: list[int] = []
+            if isinstance(raw_codes, str):
+                candidates = raw_codes.splitlines()
+            elif isinstance(raw_codes, list):
+                candidates = raw_codes
+            else:
+                candidates = []
+            for item in candidates:
+                text = _sanitize_proxy_text(item, remove_all_spaces=False).strip()
+                if not text:
+                    continue
+                try:
+                    code = int(text)
+                except (TypeError, ValueError):
+                    continue
+                if code not in normalized_codes:
+                    normalized_codes.append(code)
+            app_copy["auth_block_status_codes"] = normalized_codes
+
         payload["app"] = app_copy
 
     proxy = payload.get("proxy")

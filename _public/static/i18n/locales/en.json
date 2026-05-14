@@ -143,6 +143,7 @@
         "dynamic_statsig": {"title": "Dynamic Fingerprint", "desc": "Whether to enable dynamic Statsig fingerprint generation by default."},
         "custom_instruction": {"title": "Custom Instruction", "desc": "Multi-line text passed through as Grok request parameter customPersonality."},
         "auth_block_keywords": {"title": "Blocked Keywords", "desc": "Append extra account-expired keywords manually, one per line; matching 401/403 JSON responses will be treated as immediate expiry."},
+        "auth_block_status_codes": {"title": "Match Status Codes", "desc": "Status codes that trigger blocked-keyword detection, one per line; defaults are 401 and 403."},
         "message_assembly": {"title": "Message Assembly", "desc": "Default assembly format before forwarding OpenAI messages to Grok. standard keeps the current flattened format, json forwards the messages array directly, and tagged uses the special delimiter format."},
         "filter_tags": {"title": "Filter Tags", "desc": "Configure automatic filtering of special tags in Grok responses."}
       },

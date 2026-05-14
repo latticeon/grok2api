@@ -11,6 +11,7 @@ AUTH_ERROR_KEYWORDS = (
     "bot abuse",
     "user is blocked",
 )
+DEFAULT_AUTH_ERROR_STATUS_CODES = (401, 403)
 
 
 def get_auth_error_keywords() -> tuple[str, ...]:
@@ -39,13 +40,41 @@ def get_auth_error_keywords() -> tuple[str, ...]:
     return AUTH_ERROR_KEYWORDS + tuple(configured)
 
 
+def get_auth_error_status_codes() -> tuple[int, ...]:
+    """Return built-in and configured status codes for auth/block detection."""
+    raw_value = get_config(
+        "app.auth_block_status_codes", list(DEFAULT_AUTH_ERROR_STATUS_CODES)
+    )
+    configured: list[int] = []
+
+    if isinstance(raw_value, str):
+        candidates = raw_value.splitlines()
+    elif isinstance(raw_value, (list, tuple)):
+        candidates = raw_value
+    else:
+        candidates = []
+
+    seen = set(DEFAULT_AUTH_ERROR_STATUS_CODES)
+    for item in candidates:
+        try:
+            code = int(item)
+        except (TypeError, ValueError):
+            continue
+        if code in seen:
+            continue
+        seen.add(code)
+        configured.append(code)
+
+    return DEFAULT_AUTH_ERROR_STATUS_CODES + tuple(configured)
+
+
 def is_blocked_or_auth_expired_response(
     status_code: int,
     content_type: str,
     response_text: str,
 ) -> bool:
     """Return True when upstream response strongly indicates token auth/block failure."""
-    if status_code not in (401, 403):
+    if status_code not in get_auth_error_status_codes():
         return False
     if "application/json" not in (content_type or "").lower():
         return False
@@ -56,6 +85,8 @@ def is_blocked_or_auth_expired_response(
 
 __all__ = [
     "AUTH_ERROR_KEYWORDS",
+    "DEFAULT_AUTH_ERROR_STATUS_CODES",
     "get_auth_error_keywords",
+    "get_auth_error_status_codes",
     "is_blocked_or_auth_expired_response",
 ]

@@ -57,6 +57,7 @@ const LOCALE_MAP = {
     "dynamic_statsig": { title: "动态指纹", desc: "是否默认启用动态生成 Statsig 指纹。" },
     "custom_instruction": { title: "自定义指令", desc: "多行文本，会透传为 Grok 请求参数 customPersonality。" },
     "auth_block_keywords": { title: "封禁关键词", desc: "手动追加账号失效关键词，一行一个；命中 401/403 JSON 响应时会直接判定失效。" },
+    "auth_block_status_codes": { title: "命中状态码", desc: "用于触发封禁关键词判定的状态码，一行一个；默认 401 和 403。" },
     "message_assembly": { title: "消息组装方式", desc: "OpenAI messages 转发到 Grok 前的默认组装格式。" },
     "filter_tags": { title: "过滤标签", desc: "设置自动过滤 Grok 响应中的特殊标签。" }
   },
@@ -496,6 +497,9 @@ function buildFieldCard(section, key, val) {
   else if (section === 'app' && key === 'auth_block_keywords') {
     built = buildTextareaInput(section, key, val, 5);
   }
+  else if (section === 'app' && key === 'auth_block_status_codes') {
+    built = buildTextareaInput(section, key, val, 4);
+  }
   else if (typeof val === 'boolean') {
     built = buildBooleanInput(section, key, val);
   }
@@ -609,6 +613,13 @@ async function saveConfig() {
           .split(/\r?\n/)
           .map(item => item.trim())
           .filter(Boolean);
+      } else if (s === 'app' && k === 'auth_block_status_codes') {
+        val = val
+          .split(/\r?\n/)
+          .map(item => item.trim())
+          .filter(Boolean)
+          .map(item => Number(item))
+          .filter(item => Number.isInteger(item));
       } else if (input.dataset.type === 'json') {
         try { val = JSON.parse(val); } catch (e) { throw new Error(t('config.invalidJson', { field: getText(s, k).title })); }
       } else if (k === 'app_key' && val.trim() === '') {

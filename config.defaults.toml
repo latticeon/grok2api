@@ -28,6 +28,8 @@ dynamic_statsig = true
 custom_instruction = ""
 # 额外封禁/失效关键词（每项一个完整关键词，供后台动态维护）
 auth_block_keywords = []
+# 触发封禁/失效关键词判定的状态码
+auth_block_status_codes = [401, 403]
 # OpenAI messages 到 Grok message 的组装方式：
 # standard = 当前标准压平格式
 # json = 直接透传 messages 数组
