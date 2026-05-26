@@ -551,6 +551,138 @@ def test_chat_service_retries_overloaded_response_for_stream_and_non_stream(monk
     asyncio.run(_run())
 
 
+def test_chat_service_auto_model_rotates_models_in_config_order(monkeypatch):
+    config_map = {
+        "app.thinking": False,
+        "app.stream": False,
+        "retry.max_retry": 4,
+        "chat.stream_timeout": 0,
+        "app.filter_tags": [],
+        "auto_model.grok_auto_models": [
+            "grok-4.20-auto",
+            "grok-4.20-fast",
+            "grok-3",
+        ],
+    }
+    monkeypatch.setattr(
+        "app.services.grok.services.chat.get_config",
+        lambda key, default=None: config_map.get(key, default),
+    )
+    monkeypatch.setattr(
+        "app.services.grok.services.auto_model.get_config",
+        lambda key, default=None: config_map.get(key, default),
+    )
+
+    class FakeTokenManager:
+        def __init__(self):
+            self.consume_calls = []
+
+        async def reload_if_stale(self):
+            return None
+
+        async def record_fail(self, token, status_code=401, reason="", threshold=None):
+            return True
+
+        async def consume(self, token, effort):
+            self.consume_calls.append((token, getattr(effort, "value", effort)))
+            return True
+
+        async def mark_rate_limited(self, token):
+            return True
+
+        def get_token(self, pool_name, exclude=None):
+            return None
+
+    fake_mgr = FakeTokenManager()
+    tokens = iter(["tok1", "tok2", "tok3", "tok4"])
+    calls = []
+
+    async def fake_get_token_manager():
+        return fake_mgr
+
+    async def fake_pick_token(token_mgr, model, tried_tokens):
+        return next(tokens, None)
+
+    async def fake_chat_openai(
+        self,
+        token,
+        model,
+        messages,
+        stream=None,
+        reasoning_effort=None,
+        temperature=0.8,
+        top_p=0.95,
+        tools=None,
+        tool_choice=None,
+        parallel_tool_calls=True,
+        message_assembly=None,
+    ):
+        calls.append((token, model))
+        if len(calls) < 4:
+            lines = [
+                _json_line(
+                    {
+                        "result": {
+                            "response": {
+                                "responseId": "resp_overloaded",
+                                "llmInfo": {"modelHash": "fp_overloaded"},
+                                "modelResponse": {
+                                    "responseId": "resp_overloaded",
+                                    "message": OVERLOADED_MESSAGE,
+                                },
+                            }
+                        }
+                    }
+                )
+            ]
+        else:
+            lines = [
+                _json_line(
+                    {
+                        "result": {
+                            "response": {
+                                "responseId": "resp_ok",
+                                "llmInfo": {"modelHash": "fp_ok"},
+                                "modelResponse": {
+                                    "responseId": "resp_ok",
+                                    "message": "Hello",
+                                },
+                            }
+                        }
+                    }
+                )
+            ]
+        return _iter_lines(lines), False, model, 7
+
+    monkeypatch.setattr(
+        "app.services.grok.services.chat.get_token_manager",
+        fake_get_token_manager,
+    )
+    monkeypatch.setattr("app.services.grok.services.chat.pick_token", fake_pick_token)
+    monkeypatch.setattr(
+        "app.services.grok.services.chat.GrokChatService.chat_openai",
+        fake_chat_openai,
+    )
+
+    async def _run():
+        result = await ChatService.completions(
+            model="grok-auto",
+            messages=[{"role": "user", "content": "hi"}],
+            stream=False,
+        )
+
+        assert result["choices"][0]["message"]["content"] == "Hello"
+        assert calls == [
+            ("tok1", "grok-4.20-auto"),
+            ("tok2", "grok-4.20-fast"),
+            ("tok3", "grok-3"),
+            ("tok4", "grok-4.20-auto"),
+        ]
+        assert fake_mgr.consume_calls == [("tok4", "high")]
+
+    asyncio.run(_run())
+
+
 def test_responses_stream_completed_event_uses_chat_usage(monkeypatch):
     async def fake_chat_completions(**kwargs):
         async def _gen():

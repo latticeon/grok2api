@@ -90,6 +90,13 @@ const LOCALE_MAP = {
   },
 
 
+  "auto_model": {
+    "label": "自动模型",
+    "grok_auto_models": { title: "grok-auto 模型列表", desc: "调用 grok-auto 时按顺序尝试的真实聊天模型，一行一个；失败重试会切换 token 并切到下一个模型。" },
+    "grok_auto_lite_models": { title: "grok-auto-lite 模型列表", desc: "调用 grok-auto-lite 时按顺序尝试的真实聊天模型，一行一个；失败重试会切换 token 并切到下一个模型。" }
+  },
+
+
   "chat": {
     "label": "对话配置",
     "concurrent": { title: "并发上限", desc: "Reverse 接口并发上限。" },
@@ -500,6 +507,9 @@ function buildFieldCard(section, key, val) {
   else if (section === 'app' && key === 'auth_block_status_codes') {
     built = buildTextareaInput(section, key, val, 4);
   }
+  else if (section === 'auto_model' && (key === 'grok_auto_models' || key === 'grok_auto_lite_models')) {
+    built = buildTextareaInput(section, key, val, 5);
+  }
   else if (typeof val === 'boolean') {
     built = buildBooleanInput(section, key, val);
   }
@@ -620,6 +630,11 @@ async function saveConfig() {
           .filter(Boolean)
           .map(item => Number(item))
           .filter(item => Number.isInteger(item));
+      } else if (s === 'auto_model' && (k === 'grok_auto_models' || k === 'grok_auto_lite_models')) {
+        val = val
+          .split(/\r?\n/)
+          .map(item => item.trim())
+          .filter(Boolean);
       } else if (input.dataset.type === 'json') {
         try { val = JSON.parse(val); } catch (e) { throw new Error(t('config.invalidJson', { field: getText(s, k).title })); }
       } else if (k === 'app_key' && val.trim() === '') {

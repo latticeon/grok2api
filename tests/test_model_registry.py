@@ -7,6 +7,8 @@ def test_old_models_are_kept():
     assert ModelService.get("grok-4") is not None
     assert ModelService.get("grok-imagine-1.0") is not None
     assert ModelService.get("grok-imagine-1.0-video") is not None
+    assert ModelService.get("grok-auto") is not None
+    assert ModelService.get("grok-auto-lite") is not None
 
 
 def test_new_upstream_models_are_registered():
@@ -26,6 +28,8 @@ def test_new_upstream_models_are_registered():
         "grok-4.20-expert",
         "grok-4.20-heavy",
         "grok-4.3-beta",
+        "grok-auto",
+        "grok-auto-lite",
         "grok-imagine-image-lite",
         "grok-imagine-image",
         "grok-imagine-image-pro",

@@ -113,6 +113,7 @@
       "app": "App Settings",
       "proxy": "Proxy Config",
       "retry": "Retry Strategy",
+      "auto_model": "Auto Models",
       "chat": "Chat Config",
       "video": "Video Config",
       "image": "Image Config",
@@ -167,6 +168,10 @@
         "retry_backoff_factor": {"title": "Backoff Factor", "desc": "Exponential multiplier for retry backoff."},
         "retry_backoff_max": {"title": "Backoff Max", "desc": "Maximum delay (seconds) for a single retry wait."},
         "retry_budget": {"title": "Backoff Budget", "desc": "Maximum total retry time (seconds) for a single request."}
+      },
+      "auto_model": {
+        "grok_auto_models": {"title": "grok-auto Models", "desc": "Real chat models tried in order when calling grok-auto, one per line; retries switch token and move to the next model."},
+        "grok_auto_lite_models": {"title": "grok-auto-lite Models", "desc": "Real chat models tried in order when calling grok-auto-lite, one per line; retries switch token and move to the next model."}
       },
       "chat": {
         "concurrent": {"title": "Concurrency Limit", "desc": "Reverse API concurrency limit."},

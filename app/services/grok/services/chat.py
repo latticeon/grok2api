@@ -21,6 +21,7 @@ from app.core.exceptions import (
     EmptyResponseError,
 )
 from app.services.grok.services.model import ModelService
+from app.services.grok.services.auto_model import resolve_auto_model_route
 from app.services.grok.utils.upload import UploadService
 from app.services.grok.utils import process as proc_base
 from app.services.grok.utils.retry import pick_token, rate_limited, transient_upstream
@@ -535,6 +536,7 @@ class ChatService:
         # 获取 token
         token_mgr = await get_token_manager()
         await token_mgr.reload_if_stale()
+        model_route = resolve_auto_model_route(model)
 
         # 解析参数
         if reasoning_effort is None:
@@ -542,16 +544,18 @@ class ChatService:
         else:
             show_think = reasoning_effort != "none"
         is_stream = stream if stream is not None else get_config("app.stream")
+        retry_attempts = int(get_config("retry.max_retry") or 3)
+        max_attempts = model_route.attempt_budget(retry_attempts)
 
         if is_stream:
             async def _stream_with_token_retry():
                 tried_tokens = set()
-                max_token_retries = int(get_config("retry.max_retry") or 3)
                 last_error = None
                 role_already_sent = False
 
-                for attempt in range(max_token_retries):
-                    token = await pick_token(token_mgr, model, tried_tokens)
+                for attempt in range(max_attempts):
+                    target_model = model_route.model_for_attempt(attempt)
+                    token = await pick_token(token_mgr, target_model, tried_tokens)
                     if not token:
                         if last_error:
                             raise last_error
@@ -569,7 +573,7 @@ class ChatService:
                         service = GrokChatService()
                         response, _, model_name, prompt_tokens = await service.chat_openai(
                             token,
-                            model,
+                            target_model,
                             messages,
                             stream=True,
                             reasoning_effort=reasoning_effort,
@@ -581,7 +585,9 @@ class ChatService:
                             message_assembly=message_assembly,
                         )
 
-                        logger.debug(f"Processing stream response: model={model}")
+                        logger.debug(
+                            f"Processing stream response: model={target_model}, requested_model={model}"
+                        )
                         processor = StreamProcessor(
                             model_name,
                             token,
@@ -593,7 +599,7 @@ class ChatService:
                         )
 
                         async for chunk in wrap_stream_with_usage(
-                            processor.process(response), token_mgr, token, model
+                            processor.process(response), token_mgr, token, target_model
                         ):
                             if processor.role_sent:
                                 role_already_sent = True
@@ -611,14 +617,14 @@ class ChatService:
                             await token_mgr.mark_rate_limited(token)
                             logger.warning(
                                 f"Token {format_token_for_log(token)} rate limited (429), "
-                                f"trying next token (attempt {attempt + 1}/{max_token_retries})"
+                                f"trying next token/model (attempt {attempt + 1}/{max_attempts}, model={target_model})"
                             )
                             continue
 
                         if error_status and 400 <= error_status < 500:
                             logger.warning(
                                 f"Token {format_token_for_log(token)} client error ({error_status}), "
-                                f"trying next token (attempt {attempt + 1}/{max_token_retries})"
+                                f"trying next token/model (attempt {attempt + 1}/{max_attempts}, model={target_model})"
                             )
                             await token_mgr.record_fail(
                                 token,
@@ -629,15 +635,18 @@ class ChatService:
 
                         if transient_upstream(e):
                             has_alternative_token = False
-                            for pool_name in ModelService.pool_candidates_for_model(model):
-                                if token_mgr.get_token(pool_name, exclude=tried_tokens):
-                                    has_alternative_token = True
-                                    break
+                            if model_route.enabled:
+                                has_alternative_token = True
+                            else:
+                                for pool_name in ModelService.pool_candidates_for_model(target_model):
+                                    if token_mgr.get_token(pool_name, exclude=tried_tokens):
+                                        has_alternative_token = True
+                                        break
                             if not has_alternative_token:
                                 raise
                             logger.warning(
                                 f"Transient upstream error for token {format_token_for_log(token)}, "
-                                f"trying next token (attempt {attempt + 1}/{max_token_retries}): {e}"
+                                f"trying next token/model (attempt {attempt + 1}/{max_attempts}, model={target_model}): {e}"
                             )
                             continue
 
@@ -649,7 +658,7 @@ class ChatService:
                         reason = getattr(e, "reason", "empty_response")
                         logger.warning(
                             f"Token {format_token_for_log(token)} returned retryable response ({reason}), "
-                            f"trying next token (attempt {attempt + 1}/{max_token_retries})"
+                            f"trying next token/model (attempt {attempt + 1}/{max_attempts}, model={target_model})"
                         )
                         await token_mgr.record_fail(
                             token, status_code=0, reason=reason
@@ -657,7 +666,12 @@ class ChatService:
                         last_error = UpstreamException(
                             message=str(e) or "Retryable response content from upstream",
                             status_code=502,
-                            details={"error": reason, "token": format_token_for_log(token)},
+                            details={
+                                "error": reason,
+                                "token": format_token_for_log(token),
+                                "model": target_model,
+                                "requested_model": model,
+                            },
                         )
                         continue
 
@@ -674,12 +688,12 @@ class ChatService:
 
         # 跨 Token 重试循环
         tried_tokens = set()
-        max_token_retries = int(get_config("retry.max_retry") or 3)
         last_error = None
 
-        for attempt in range(max_token_retries):
+        for attempt in range(max_attempts):
             # 选择 token
-            token = await pick_token(token_mgr, model, tried_tokens)
+            target_model = model_route.model_for_attempt(attempt)
+            token = await pick_token(token_mgr, target_model, tried_tokens)
             if not token:
                 if last_error:
                     raise last_error
@@ -697,7 +711,7 @@ class ChatService:
                 service = GrokChatService()
                 response, _, model_name, prompt_tokens = await service.chat_openai(
                     token,
-                    model,
+                    target_model,
                     messages,
                     stream=is_stream,
                     reasoning_effort=reasoning_effort,
@@ -711,7 +725,9 @@ class ChatService:
 
                 # 处理响应
                 if is_stream:
-                    logger.debug(f"Processing stream response: model={model}")
+                    logger.debug(
+                        f"Processing stream response: model={target_model}, requested_model={model}"
+                    )
                     processor = StreamProcessor(
                         model_name,
                         token,
@@ -721,11 +737,13 @@ class ChatService:
                         prompt_tokens=prompt_tokens,
                     )
                     return wrap_stream_with_usage(
-                        processor.process(response), token_mgr, token, model
+                        processor.process(response), token_mgr, token, target_model
                     )
 
                 # 非流式
-                logger.debug(f"Processing non-stream response: model={model}")
+                logger.debug(
+                    f"Processing non-stream response: model={target_model}, requested_model={model}"
+                )
                 result = await CollectProcessor(
                     model_name,
                     token,
@@ -734,14 +752,16 @@ class ChatService:
                     prompt_tokens=prompt_tokens,
                 ).process(response)
                 try:
-                    model_info = ModelService.get(model)
+                    model_info = ModelService.get(target_model)
                     effort = (
                         EffortType.HIGH
                         if (model_info and model_info.cost.value == "high")
                         else EffortType.LOW
                     )
                     await token_mgr.consume(token, effort)
-                    logger.info(f"Chat completed: model={model}, effort={effort.value}")
+                    logger.info(
+                        f"Chat completed: model={target_model}, requested_model={model}, effort={effort.value}"
+                    )
                 except Exception as e:
                     logger.warning(f"Failed to record usage: {e}")
                 return result
@@ -757,7 +777,7 @@ class ChatService:
                     await token_mgr.mark_rate_limited(token)
                     logger.warning(
                         f"Token {format_token_for_log(token)} rate limited (429), "
-                        f"trying next token (attempt {attempt + 1}/{max_token_retries})"
+                        f"trying next token/model (attempt {attempt + 1}/{max_attempts}, model={target_model})"
                     )
                     continue
 
@@ -766,7 +786,7 @@ class ChatService:
                 if error_status and 400 <= error_status < 500:
                     logger.warning(
                         f"Token {format_token_for_log(token)} client error ({error_status}), "
-                        f"trying next token (attempt {attempt + 1}/{max_token_retries})"
+                        f"trying next token/model (attempt {attempt + 1}/{max_attempts}, model={target_model})"
                     )
                     await token_mgr.record_fail(
                         token, status_code=error_status, reason=f"client_error_{error_status}"
@@ -776,15 +796,18 @@ class ChatService:
                 if transient_upstream(e):
                     # 5xx 服务器错误：临时问题，检查是否有备用 token 后换 token 重试
                     has_alternative_token = False
-                    for pool_name in ModelService.pool_candidates_for_model(model):
-                        if token_mgr.get_token(pool_name, exclude=tried_tokens):
-                            has_alternative_token = True
-                            break
+                    if model_route.enabled:
+                        has_alternative_token = True
+                    else:
+                        for pool_name in ModelService.pool_candidates_for_model(target_model):
+                            if token_mgr.get_token(pool_name, exclude=tried_tokens):
+                                has_alternative_token = True
+                                break
                     if not has_alternative_token:
                         raise
                     logger.warning(
                         f"Transient upstream error for token {format_token_for_log(token)}, "
-                        f"trying next token (attempt {attempt + 1}/{max_token_retries}): {e}"
+                        f"trying next token/model (attempt {attempt + 1}/{max_attempts}, model={target_model}): {e}"
                     )
                     continue
 
@@ -796,7 +819,7 @@ class ChatService:
                 reason = getattr(e, "reason", "empty_response")
                 logger.warning(
                     f"Token {format_token_for_log(token)} returned retryable response ({reason}), "
-                    f"trying next token (attempt {attempt + 1}/{max_token_retries})"
+                    f"trying next token/model (attempt {attempt + 1}/{max_attempts}, model={target_model})"
                 )
                 await token_mgr.record_fail(
                     token, status_code=0, reason=reason
@@ -804,7 +827,12 @@ class ChatService:
                 last_error = UpstreamException(
                     message=str(e) or "Retryable response content from upstream",
                     status_code=502,
-                    details={"error": reason, "token": format_token_for_log(token)},
+                    details={
+                        "error": reason,
+                        "token": format_token_for_log(token),
+                        "model": target_model,
+                        "requested_model": model,
+                    },
                 )
                 continue
 

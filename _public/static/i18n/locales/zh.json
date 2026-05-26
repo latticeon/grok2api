@@ -113,6 +113,7 @@
       "app": "应用设置",
       "proxy": "代理配置",
       "retry": "重试策略",
+      "auto_model": "自动模型",
       "chat": "对话配置",
       "video": "视频配置",
       "image": "图像配置",
@@ -167,6 +168,10 @@
         "retry_backoff_factor": {"title": "退避倍率", "desc": "重试退避的指数放大系数。"},
         "retry_backoff_max": {"title": "退避上限", "desc": "单次重试等待的最大延迟（秒）。"},
         "retry_budget": {"title": "退避预算", "desc": "单次请求的最大重试总耗时（秒）。"}
+      },
+      "auto_model": {
+        "grok_auto_models": {"title": "grok-auto 模型列表", "desc": "调用 grok-auto 时按顺序尝试的真实聊天模型，一行一个；失败重试会切换 token 并切到下一个模型。"},
+        "grok_auto_lite_models": {"title": "grok-auto-lite 模型列表", "desc": "调用 grok-auto-lite 时按顺序尝试的真实聊天模型，一行一个；失败重试会切换 token 并切到下一个模型。"}
       },
       "chat": {
         "concurrent": {"title": "并发上限", "desc": "Reverse 接口并发上限。"},
