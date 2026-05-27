@@ -13,6 +13,7 @@ from app.services.grok.services.chat import (
     MessageExtractor,
     StreamProcessor,
 )
+from app.services.grok.services.auto_model_stats import get_auto_model_stats_service
 from app.services.grok.services.responses import ResponsesService
 from app.api.v1.chat import router as chat_router
 from app.api.v1.response import router as response_router
@@ -552,6 +553,7 @@ def test_chat_service_retries_overloaded_response_for_stream_and_non_stream(monk
 
 
 def test_chat_service_auto_model_rotates_models_in_config_order(monkeypatch):
+    get_auto_model_stats_service().reset_cache()
     config_map = {
         "app.thinking": False,
         "app.stream": False,
@@ -563,6 +565,7 @@ def test_chat_service_auto_model_rotates_models_in_config_order(monkeypatch):
             "grok-4.20-fast",
             "grok-3",
         ],
+        "auto_model.prefer_success_rate": False,
     }
     monkeypatch.setattr(
         "app.services.grok.services.chat.get_config",
@@ -571,6 +574,14 @@ def test_chat_service_auto_model_rotates_models_in_config_order(monkeypatch):
     monkeypatch.setattr(
         "app.services.grok.services.auto_model.get_config",
         lambda key, default=None: config_map.get(key, default),
+    )
+    monkeypatch.setattr(
+        "app.services.grok.services.auto_model_stats.get_storage",
+        lambda: SimpleNamespace(
+            load_auto_model_stats=_empty_auto_model_stats,
+            save_auto_model_stats=_noop_save_auto_model_stats,
+            acquire_lock=_dummy_async_lock,
+        ),
     )
 
     class FakeTokenManager:
@@ -679,6 +690,155 @@ def test_chat_service_auto_model_rotates_models_in_config_order(monkeypatch):
             ("tok4", "grok-4.20-auto"),
         ]
         assert fake_mgr.consume_calls == [("tok4", "high")]
+
+    asyncio.run(_run())
+
+
+class _DummyLock:
+    async def __aenter__(self):
+        return None
+
+    async def __aexit__(self, exc_type, exc, tb):
+        return False
+
+
+def _dummy_async_lock(*args, **kwargs):
+    return _DummyLock()
+
+
+async def _empty_auto_model_stats():
+    return {}
+
+
+async def _noop_save_auto_model_stats(data):
+    return None
+
+
+def test_auto_model_prefers_success_rate_order_and_records_stats(monkeypatch):
+    get_auto_model_stats_service().reset_cache()
+    config_map = {
+        "app.thinking": False,
+        "app.stream": False,
+        "retry.max_retry": 2,
+        "chat.stream_timeout": 0,
+        "app.filter_tags": [],
+        "auto_model.grok_auto_models": [
+            "grok-4.20-auto",
+            "grok-4.20-fast",
+            "grok-3",
+        ],
+        "auto_model.prefer_success_rate": True,
+    }
+    monkeypatch.setattr(
+        "app.services.grok.services.chat.get_config",
+        lambda key, default=None: config_map.get(key, default),
+    )
+    monkeypatch.setattr(
+        "app.services.grok.services.auto_model.get_config",
+        lambda key, default=None: config_map.get(key, default),
+    )
+
+    stats_store = {
+        "grok-auto": {
+            "grok-4.20-auto": {"attempts": 10, "successes": 3, "updated_at": 1},
+            "grok-4.20-fast": {"attempts": 10, "successes": 8, "updated_at": 1},
+            "grok-3": {"attempts": 10, "successes": 5, "updated_at": 1},
+        }
+    }
+
+    async def fake_load_auto_model_stats():
+        return stats_store
+
+    async def fake_save_auto_model_stats(data):
+        stats_store.clear()
+        stats_store.update(data)
+
+    monkeypatch.setattr(
+        "app.services.grok.services.auto_model_stats.get_storage",
+        lambda: SimpleNamespace(
+            load_auto_model_stats=fake_load_auto_model_stats,
+            save_auto_model_stats=fake_save_auto_model_stats,
+            acquire_lock=_dummy_async_lock,
+        ),
+    )
+
+    class FakeTokenManager:
+        async def reload_if_stale(self):
+            return None
+
+        async def record_fail(self, token, status_code=401, reason="", threshold=None):
+            return True
+
+        async def consume(self, token, effort):
+            return True
+
+        async def mark_rate_limited(self, token):
+            return True
+
+        def get_token(self, pool_name, exclude=None):
+            return None
+
+    async def fake_get_token_manager():
+        return FakeTokenManager()
+
+    calls = []
+
+    async def fake_pick_token(token_mgr, model, tried_tokens):
+        return "tok1"
+
+    async def fake_chat_openai(
+        self,
+        token,
+        model,
+        messages,
+        stream=None,
+        reasoning_effort=None,
+        temperature=0.8,
+        top_p=0.95,
+        tools=None,
+        tool_choice=None,
+        parallel_tool_calls=True,
+        message_assembly=None,
+    ):
+        calls.append(model)
+        lines = [
+            _json_line(
+                {
+                    "result": {
+                        "response": {
+                            "responseId": "resp_ok",
+                            "llmInfo": {"modelHash": "fp_ok"},
+                            "modelResponse": {
+                                "responseId": "resp_ok",
+                                "message": "Hello",
+                            },
+                        }
+                    }
+                }
+            )
+        ]
+        return _iter_lines(lines), False, model, 7
+
+    monkeypatch.setattr(
+        "app.services.grok.services.chat.get_token_manager",
+        fake_get_token_manager,
+    )
+    monkeypatch.setattr("app.services.grok.services.chat.pick_token", fake_pick_token)
+    monkeypatch.setattr(
+        "app.services.grok.services.chat.GrokChatService.chat_openai",
+        fake_chat_openai,
+    )
+
+    async def _run():
+        result = await ChatService.completions(
+            model="grok-auto",
+            messages=[{"role": "user", "content": "hi"}],
+            stream=False,
+        )
+        assert result["choices"][0]["message"]["content"] == "Hello"
+        assert calls == ["grok-4.20-fast"]
+        assert stats_store["grok-auto"]["grok-4.20-fast"]["attempts"] == 11
+        assert stats_store["grok-auto"]["grok-4.20-fast"]["successes"] == 9
 
     asyncio.run(_run())
 

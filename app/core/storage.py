@@ -101,6 +101,14 @@ class BaseStorage(abc.ABC):
         """保存所有 Token"""
         pass
 
+    async def load_auto_model_stats(self) -> Dict[str, Any]:
+        """加载自动模型成功率统计"""
+        return {}
+
+    async def save_auto_model_stats(self, data: Dict[str, Any]):
+        """保存自动模型成功率统计"""
+        return None
+
     async def save_tokens_delta(
         self, updated: list[Dict[str, Any]], deleted: Optional[list[str]] = None
     ):
@@ -303,6 +311,31 @@ class LocalStorage(BaseStorage):
             logger.error(f"LocalStorage: 保存 Token 失败: {e}")
             raise StorageError(f"保存 Token 失败: {e}")
 
+    async def load_auto_model_stats(self) -> Dict[str, Any]:
+        stats_file = DATA_DIR / "auto_model_stats.json"
+        if not stats_file.exists():
+            return {}
+        try:
+            async with aiofiles.open(stats_file, "rb") as f:
+                content = await f.read()
+                data = json_loads(content)
+                return data if isinstance(data, dict) else {}
+        except Exception as e:
+            logger.error(f"LocalStorage: 加载自动模型统计失败: {e}")
+            return {}
+
+    async def save_auto_model_stats(self, data: Dict[str, Any]):
+        stats_file = DATA_DIR / "auto_model_stats.json"
+        try:
+            stats_file.parent.mkdir(parents=True, exist_ok=True)
+            temp_path = stats_file.with_suffix(".tmp")
+            async with aiofiles.open(temp_path, "wb") as f:
+                await f.write(orjson.dumps(data or {}, option=orjson.OPT_INDENT_2))
+            os.replace(temp_path, stats_file)
+        except Exception as e:
+            logger.error(f"LocalStorage: 保存自动模型统计失败: {e}")
+            raise StorageError(f"保存自动模型统计失败: {e}")
+
     async def close(self):
         pass
 
@@ -327,6 +360,7 @@ class RedisStorage(BaseStorage):
             url, decode_responses=True, health_check_interval=30
         )
         self.config_key = "grok2api:config"  # Hash: section.key -> value_json
+        self.auto_model_stats_key = "grok2api:auto_model_stats"
         self.key_pools = "grok2api:pools"  # Set: pool_names
         self.prefix_pool_set = "grok2api:pool:"  # Set: pool -> token_ids
         self.prefix_token_hash = "grok2api:token:"  # Hash: token_id -> token_data
@@ -399,6 +433,24 @@ class RedisStorage(BaseStorage):
                 await self.redis.hset(self.config_key, mapping=mapping)
         except Exception as e:
             logger.error(f"RedisStorage: 保存配置失败: {e}")
+            raise
+
+    async def load_auto_model_stats(self) -> Dict[str, Any]:
+        try:
+            raw = await self.redis.get(self.auto_model_stats_key)
+            if not raw:
+                return {}
+            data = json_loads(raw)
+            return data if isinstance(data, dict) else {}
+        except Exception as e:
+            logger.error(f"RedisStorage: 加载自动模型统计失败: {e}")
+            return {}
+
+    async def save_auto_model_stats(self, data: Dict[str, Any]):
+        try:
+            await self.redis.set(self.auto_model_stats_key, json_dumps(data or {}))
+        except Exception as e:
+            logger.error(f"RedisStorage: 保存自动模型统计失败: {e}")
             raise
 
     async def load_tokens(self) -> Dict[str, Any]:
@@ -636,6 +688,19 @@ class SQLStorage(BaseStorage):
                         key_name VARCHAR(64) NOT NULL,
                         value TEXT,
                         PRIMARY KEY (section, key_name)
+                    )
+                """)
+                )
+
+                await conn.execute(
+                    text("""
+                    CREATE TABLE IF NOT EXISTS auto_model_stats (
+                        route_id VARCHAR(64) NOT NULL,
+                        model_id VARCHAR(128) NOT NULL,
+                        attempts BIGINT NOT NULL,
+                        successes BIGINT NOT NULL,
+                        updated_at BIGINT NOT NULL,
+                        PRIMARY KEY (route_id, model_id)
                     )
                 """)
                 )
@@ -1067,6 +1132,69 @@ class SQLStorage(BaseStorage):
         except Exception as e:
             logger.error(f"SQLStorage: 加载 Token 失败: {e}")
             return None
+
+    async def load_auto_model_stats(self) -> Dict[str, Any]:
+        await self._ensure_schema()
+        from sqlalchemy import text
+
+        try:
+            async with self.async_session() as session:
+                res = await session.execute(
+                    text(
+                        "SELECT route_id, model_id, attempts, successes, updated_at "
+                        "FROM auto_model_stats"
+                    )
+                )
+                rows = res.fetchall()
+                payload: Dict[str, Any] = {}
+                for route_id, model_id, attempts, successes, updated_at in rows:
+                    route_stats = payload.setdefault(route_id, {})
+                    route_stats[model_id] = {
+                        "attempts": int(attempts or 0),
+                        "successes": int(successes or 0),
+                        "updated_at": int(updated_at or 0),
+                    }
+                return payload
+        except Exception as e:
+            logger.error(f"SQLStorage: 加载自动模型统计失败: {e}")
+            return {}
+
+    async def save_auto_model_stats(self, data: Dict[str, Any]):
+        await self._ensure_schema()
+        from sqlalchemy import text
+
+        try:
+            async with self.async_session() as session:
+                await session.execute(text("DELETE FROM auto_model_stats"))
+                params = []
+                for route_id, route_stats in (data or {}).items():
+                    if not isinstance(route_stats, dict):
+                        continue
+                    for model_id, stats in route_stats.items():
+                        if not isinstance(stats, dict):
+                            continue
+                        params.append(
+                            {
+                                "route_id": route_id,
+                                "model_id": model_id,
+                                "attempts": int(stats.get("attempts") or 0),
+                                "successes": int(stats.get("successes") or 0),
+                                "updated_at": int(stats.get("updated_at") or 0),
+                            }
+                        )
+                if params:
+                    await session.execute(
+                        text(
+                            "INSERT INTO auto_model_stats "
+                            "(route_id, model_id, attempts, successes, updated_at) "
+                            "VALUES (:route_id, :model_id, :attempts, :successes, :updated_at)"
+                        ),
+                        params,
+                    )
+                await session.commit()
+        except Exception as e:
+            logger.error(f"SQLStorage: 保存自动模型统计失败: {e}")
+            raise
 
     async def save_tokens(self, data: Dict[str, Any]):
         await self._ensure_schema()

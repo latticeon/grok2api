@@ -102,6 +102,10 @@
     "saving": "保存中...",
     "saved": "成功",
     "configSaved": "配置已保存",
+    "autoModelStatsTitle": "当前调用顺序：{mode}",
+    "autoModelOrderConfig": "按配置顺序",
+    "autoModelOrderSuccess": "按成功率顺序",
+    "autoModelStatsValue": "成功率 {rate} · 成功 {success} / 尝试 {attempts}",
     "invalidJson": "无效的 JSON: {field}",
     "appKeyRequired": "app_key 不能为空（后台密码）",
     "flaresolverrRequired": "启用自动刷新时必须填写 FlareSolverr 地址",
@@ -171,7 +175,8 @@
       },
       "auto_model": {
         "grok_auto_models": {"title": "grok-auto 模型列表", "desc": "调用 grok-auto 时按顺序尝试的真实聊天模型，一行一个；失败重试会切换 token 并切到下一个模型。"},
-        "grok_auto_lite_models": {"title": "grok-auto-lite 模型列表", "desc": "调用 grok-auto-lite 时按顺序尝试的真实聊天模型，一行一个；失败重试会切换 token 并切到下一个模型。"}
+        "grok_auto_lite_models": {"title": "grok-auto-lite 模型列表", "desc": "调用 grok-auto-lite 时按顺序尝试的真实聊天模型，一行一个；失败重试会切换 token 并切到下一个模型。"},
+        "prefer_success_rate": {"title": "按成功率优先", "desc": "开启后，grok-auto 与 grok-auto-lite 会优先按模型历史成功率从高到低调用；关闭时按配置顺序调用。"}
       },
       "chat": {
         "concurrent": {"title": "并发上限", "desc": "Reverse 接口并发上限。"},

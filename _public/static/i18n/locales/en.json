@@ -102,6 +102,10 @@
     "saving": "Saving...",
     "saved": "Saved",
     "configSaved": "Configuration saved",
+    "autoModelStatsTitle": "Current order: {mode}",
+    "autoModelOrderConfig": "config order",
+    "autoModelOrderSuccess": "success-rate order",
+    "autoModelStatsValue": "Success rate {rate} · {success} succeeded / {attempts} attempts",
     "invalidJson": "Invalid JSON: {field}",
     "appKeyRequired": "app_key cannot be empty (admin password)",
     "flaresolverrRequired": "FlareSolverr URL is required when auto-refresh is enabled",
@@ -171,7 +175,8 @@
       },
       "auto_model": {
         "grok_auto_models": {"title": "grok-auto Models", "desc": "Real chat models tried in order when calling grok-auto, one per line; retries switch token and move to the next model."},
-        "grok_auto_lite_models": {"title": "grok-auto-lite Models", "desc": "Real chat models tried in order when calling grok-auto-lite, one per line; retries switch token and move to the next model."}
+        "grok_auto_lite_models": {"title": "grok-auto-lite Models", "desc": "Real chat models tried in order when calling grok-auto-lite, one per line; retries switch token and move to the next model."},
+        "prefer_success_rate": {"title": "Prefer Success Rate", "desc": "When enabled, grok-auto and grok-auto-lite try models from highest to lowest historical success rate; when disabled, they keep the configured order."}
       },
       "chat": {
         "concurrent": {"title": "Concurrency Limit", "desc": "Reverse API concurrency limit."},

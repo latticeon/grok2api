@@ -9,6 +9,7 @@ from typing import Any
 from app.core.config import get_config
 from app.core.exceptions import ValidationException
 from app.services.grok.services.model import ModelService
+from app.services.grok.services.auto_model_stats import get_auto_model_stats_service
 
 
 AUTO_MODEL_ID = "grok-auto"
@@ -28,6 +29,10 @@ class AutoModelRoute:
     @property
     def enabled(self) -> bool:
         return self.requested_model in _AUTO_CONFIG_KEYS
+
+    @property
+    def config_key(self) -> str | None:
+        return _AUTO_CONFIG_KEYS.get(self.requested_model)
 
     def model_for_attempt(self, attempt: int) -> str:
         if not self.models:
@@ -92,16 +97,53 @@ def resolve_auto_model_route(model_id: str) -> AutoModelRoute:
         return AutoModelRoute(requested_model=model_id, models=(model_id,))
 
     models = _coerce_model_list(get_config(config_key, []))
+    ordered_models = _validate_concrete_models(model_id, models)
+    prefer_success_rate = bool(get_config("auto_model.prefer_success_rate", False))
+    if prefer_success_rate:
+        # Auto route ordering is computed lazily in async context.
+        return AutoModelRoute(
+            requested_model=model_id,
+            models=ordered_models,
+        )
     return AutoModelRoute(
         requested_model=model_id,
-        models=_validate_concrete_models(model_id, models),
+        models=ordered_models,
     )
+
+
+async def resolve_auto_model_route_async(model_id: str) -> AutoModelRoute:
+    route = resolve_auto_model_route(model_id)
+    if not route.enabled:
+        return route
+    prefer_success_rate = bool(get_config("auto_model.prefer_success_rate", False))
+    if not prefer_success_rate:
+        return route
+    stats_service = get_auto_model_stats_service()
+    ordered_models = await stats_service.order_models(
+        route.requested_model,
+        route.models,
+        prefer_success_rate=True,
+    )
+    return AutoModelRoute(requested_model=route.requested_model, models=ordered_models)
+
+
+def get_auto_model_route_map() -> dict[str, tuple[str, ...]]:
+    route_map: dict[str, tuple[str, ...]] = {}
+    for route_id, config_key in _AUTO_CONFIG_KEYS.items():
+        models = _coerce_model_list(get_config(config_key, []))
+        try:
+            route_map[route_id] = _validate_concrete_models(route_id, models)
+        except ValidationException:
+            route_map[route_id] = tuple(models)
+    return route_map
 
 
 __all__ = [
     "AUTO_LITE_MODEL_ID",
     "AUTO_MODEL_ID",
     "AutoModelRoute",
+    "get_auto_model_route_map",
     "is_auto_model",
     "resolve_auto_model_route",
+    "resolve_auto_model_route_async",
 ]

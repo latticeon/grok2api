@@ -1,5 +1,6 @@
 let apiKey = '';
 let currentConfig = {};
+let autoModelStats = null;
 const byId = (id) => document.getElementById(id);
 const NUMERIC_FIELDS = new Set([
   'timeout',
@@ -93,7 +94,8 @@ const LOCALE_MAP = {
   "auto_model": {
     "label": "自动模型",
     "grok_auto_models": { title: "grok-auto 模型列表", desc: "调用 grok-auto 时按顺序尝试的真实聊天模型，一行一个；失败重试会切换 token 并切到下一个模型。" },
-    "grok_auto_lite_models": { title: "grok-auto-lite 模型列表", desc: "调用 grok-auto-lite 时按顺序尝试的真实聊天模型，一行一个；失败重试会切换 token 并切到下一个模型。" }
+    "grok_auto_lite_models": { title: "grok-auto-lite 模型列表", desc: "调用 grok-auto-lite 时按顺序尝试的真实聊天模型，一行一个；失败重试会切换 token 并切到下一个模型。" },
+    "prefer_success_rate": { title: "按成功率优先", desc: "开启后，grok-auto 与 grok-auto-lite 会优先按模型历史成功率从高到低调用；关闭时按配置顺序调用。" }
   },
 
 
@@ -377,13 +379,19 @@ async function init() {
 
 async function loadData() {
   try {
-    const res = await fetch('/v1/admin/config', {
-      headers: buildAuthHeaders(apiKey)
-    });
-    if (res.ok) {
-      currentConfig = await res.json();
+    const [configRes, statsRes] = await Promise.all([
+      fetch('/v1/admin/config', {
+        headers: buildAuthHeaders(apiKey)
+      }),
+      fetch('/v1/admin/config/auto-model-stats', {
+        headers: buildAuthHeaders(apiKey)
+      })
+    ]);
+    if (configRes.ok) {
+      currentConfig = await configRes.json();
+      autoModelStats = statsRes.ok ? await statsRes.json() : null;
       renderConfig(currentConfig);
-    } else if (res.status === 401) {
+    } else if (configRes.status === 401) {
       logout();
     }
   } catch (e) {
@@ -568,6 +576,13 @@ function buildFieldCard(section, key, val) {
   if (built) {
     inputWrapper.appendChild(built.node);
   }
+
+  if (section === 'auto_model' && (key === 'grok_auto_models' || key === 'grok_auto_lite_models')) {
+    const statsNode = buildAutoModelStatsNode(key === 'grok_auto_models' ? 'grok-auto' : 'grok-auto-lite');
+    if (statsNode) {
+      inputWrapper.appendChild(statsNode);
+    }
+  }
   fieldCard.appendChild(inputWrapper);
 
   // proxy.enabled (CF 自动刷新) 联动（toggle 本身始终可交互）
@@ -597,6 +612,53 @@ function buildFieldCard(section, key, val) {
   }
 
   return fieldCard;
+}
+
+function buildAutoModelStatsNode(routeId) {
+  if (!autoModelStats || !autoModelStats.stats || !autoModelStats.current_order) return null;
+  const statItems = autoModelStats.stats[routeId];
+  const orderItems = autoModelStats.current_order[routeId];
+  if (!Array.isArray(statItems) || !Array.isArray(orderItems)) return null;
+
+  const card = document.createElement('div');
+  card.className = 'auto-model-stats';
+
+  const header = document.createElement('div');
+  header.className = 'auto-model-stats-header';
+  const modeLabel = autoModelStats.prefer_success_rate
+    ? t('config.autoModelOrderSuccess')
+    : t('config.autoModelOrderConfig');
+  header.textContent = t('config.autoModelStatsTitle', { mode: modeLabel });
+  card.appendChild(header);
+
+  const order = document.createElement('div');
+  order.className = 'auto-model-order';
+  order.textContent = orderItems.join(' → ');
+  card.appendChild(order);
+
+  statItems.forEach((item, index) => {
+    const row = document.createElement('div');
+    row.className = 'auto-model-stat-row';
+
+    const model = document.createElement('div');
+    model.className = 'auto-model-stat-model';
+    model.textContent = `${index + 1}. ${item.model_id}`;
+
+    const meta = document.createElement('div');
+    meta.className = 'auto-model-stat-meta';
+    const rate = `${((Number(item.success_rate) || 0) * 100).toFixed(1)}%`;
+    meta.textContent = t('config.autoModelStatsValue', {
+      rate: rate,
+      success: item.successes,
+      attempts: item.attempts
+    });
+
+    row.appendChild(model);
+    row.appendChild(meta);
+    card.appendChild(row);
+  });
+
+  return card;
 }
 
 async function saveConfig() {

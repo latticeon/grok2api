@@ -12,6 +12,11 @@ from app.core.storage import (
     SQLStorage,
     get_storage as resolve_storage,
 )
+from app.services.grok.services.auto_model import (
+    get_auto_model_route_map,
+    resolve_auto_model_route_async,
+)
+from app.services.grok.services.auto_model_stats import get_auto_model_stats_service
 
 router = APIRouter()
 
@@ -141,6 +146,25 @@ async def get_config():
     """获取当前配置"""
     # 暴露原始配置字典
     return config._config
+
+
+@router.get("/config/auto-model-stats", dependencies=[Depends(verify_app_key)])
+async def get_auto_model_stats():
+    """获取自动模型成功率统计与当前排序"""
+    route_map = get_auto_model_route_map()
+    stats_service = get_auto_model_stats_service()
+    stats = await stats_service.get_all_stats(route_map)
+
+    current_order: dict[str, list[str]] = {}
+    for route_id in route_map:
+        route = await resolve_auto_model_route_async(route_id)
+        current_order[route_id] = list(route.models)
+
+    return {
+        "prefer_success_rate": bool(config.get("auto_model.prefer_success_rate", False)),
+        "current_order": current_order,
+        "stats": stats,
+    }
 
 
 @router.post("/config", dependencies=[Depends(verify_app_key)])

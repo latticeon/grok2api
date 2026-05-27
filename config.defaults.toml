@@ -89,6 +89,8 @@ retry_budget = 60.0
 grok_auto_models = ["grok-4.20-auto", "grok-4.20-fast", "grok-4.20-0309"]
 # grok-auto-lite 按顺序尝试的真实聊天模型（一行/一项一个模型）
 grok_auto_lite_models = ["grok-4.20-fast", "grok-3", "grok-3-mini"]
+# 是否优先按自动模型历史成功率排序调用（关闭时按配置顺序调用）
+prefer_success_rate = false
 
 
 # ==================== Token 池管理 ====================

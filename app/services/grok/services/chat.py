@@ -21,7 +21,8 @@ from app.core.exceptions import (
     EmptyResponseError,
 )
 from app.services.grok.services.model import ModelService
-from app.services.grok.services.auto_model import resolve_auto_model_route
+from app.services.grok.services.auto_model import resolve_auto_model_route_async
+from app.services.grok.services.auto_model_stats import get_auto_model_stats_service
 from app.services.grok.utils.upload import UploadService
 from app.services.grok.utils import process as proc_base
 from app.services.grok.utils.retry import pick_token, rate_limited, transient_upstream
@@ -536,7 +537,8 @@ class ChatService:
         # 获取 token
         token_mgr = await get_token_manager()
         await token_mgr.reload_if_stale()
-        model_route = resolve_auto_model_route(model)
+        model_route = await resolve_auto_model_route_async(model)
+        auto_model_stats = get_auto_model_stats_service() if model_route.enabled else None
 
         # 解析参数
         if reasoning_effort is None:
@@ -604,12 +606,30 @@ class ChatService:
                             if processor.role_sent:
                                 role_already_sent = True
                             yield chunk
+                        if auto_model_stats:
+                            await auto_model_stats.record_attempt(
+                                model_route.requested_model,
+                                target_model,
+                                success=True,
+                            )
                         return
 
                     except UpstreamException as e:
                         last_error = e
                         if processor and processor.has_output_content:
+                            if auto_model_stats:
+                                await auto_model_stats.record_attempt(
+                                    model_route.requested_model,
+                                    target_model,
+                                    success=False,
+                                )
                             raise
+                        if auto_model_stats:
+                            await auto_model_stats.record_attempt(
+                                model_route.requested_model,
+                                target_model,
+                                success=False,
+                            )
 
                         error_status = e.details.get("status") if e.details else None
 
@@ -653,6 +673,12 @@ class ChatService:
                         raise
 
                     except EmptyResponseError as e:
+                        if auto_model_stats:
+                            await auto_model_stats.record_attempt(
+                                model_route.requested_model,
+                                target_model,
+                                success=False,
+                            )
                         if processor and processor.role_sent:
                             role_already_sent = True
                         reason = getattr(e, "reason", "empty_response")
@@ -764,10 +790,22 @@ class ChatService:
                     )
                 except Exception as e:
                     logger.warning(f"Failed to record usage: {e}")
+                if auto_model_stats:
+                    await auto_model_stats.record_attempt(
+                        model_route.requested_model,
+                        target_model,
+                        success=True,
+                    )
                 return result
 
             except UpstreamException as e:
                 last_error = e
+                if auto_model_stats:
+                    await auto_model_stats.record_attempt(
+                        model_route.requested_model,
+                        target_model,
+                        success=False,
+                    )
 
                 # 获取错误状态码
                 error_status = e.details.get("status") if e.details else None
@@ -816,6 +854,12 @@ class ChatService:
                 
             except EmptyResponseError as e:
                 # 空响应或可重试错误内容，记录失败并换 token 重试
+                if auto_model_stats:
+                    await auto_model_stats.record_attempt(
+                        model_route.requested_model,
+                        target_model,
+                        success=False,
+                    )
                 reason = getattr(e, "reason", "empty_response")
                 logger.warning(
                     f"Token {format_token_for_log(token)} returned retryable response ({reason}), "
