@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title data-i18n="modelTest.pageTitle">Grok2API - 模型测试</title>
+  <link rel="icon" href="/favicon.ico">
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link href="https://cdn.jsdelivr.net/npm/geist@1.0.0/dist/fonts/geist-sans/style.css" rel="stylesheet">
+  <link href="https://cdn.jsdelivr.net/npm/geist@1.0.0/dist/fonts/geist-mono/style.css" rel="stylesheet">
+  <link href="/static/common/css/common.css?v=1.6.2" rel="stylesheet">
+  <link href="/static/common/css/toast.css" rel="stylesheet">
+  <link href="/static/admin/css/model-test.css?v=1.6.2" rel="stylesheet">
+</head>
+
+<body class="min-h-screen flex flex-col" style="background-color: var(--bg);">
+  <div id="toast-container" class="toast-container"></div>
+  <div id="app-header"></div>
+
+  <main class="space-y-6 flex-1 container mx-auto max-w-5xl px-6 py-8 fade-in">
+    <div class="space-y-6">
+      <div>
+        <h2 class="text-2xl font-semibold tracking-tight" data-i18n="modelTest.title">模型测试</h2>
+        <p class="text-[var(--accents-4)] mt-1 text-sm" data-i18n="modelTest.subtitle">输入指定 Token，对全部聊天模型逐个发起测试请求。</p>
+      </div>
+
+      <div class="model-test-panel">
+        <div class="model-test-form">
+          <div class="model-test-field">
+            <label class="model-test-label" for="test-token-input" data-i18n="modelTest.tokenLabel">测试 Token</label>
+            <input id="test-token-input" type="text" class="geist-input font-mono" data-i18n-placeholder="modelTest.tokenPlaceholder" placeholder="输入要测试的 token">
+          </div>
+          <div class="model-test-field">
+            <label class="model-test-label" for="test-prompt-input" data-i18n="modelTest.promptLabel">测试文本</label>
+            <textarea id="test-prompt-input" class="geist-input min-h-[96px] resize-y" data-i18n-placeholder="modelTest.promptPlaceholder" placeholder="你是谁？">你是谁？</textarea>
+          </div>
+          <div class="model-test-actions">
+            <button id="model-test-run" type="button" class="geist-button" onclick="runModelTests()" data-i18n="modelTest.startTest">开始测试</button>
+          </div>
+        </div>
+
+        <div class="model-test-summary">
+          <div class="summary-card">
+            <div class="summary-value" id="summary-total">0</div>
+            <div class="summary-label" data-i18n="modelTest.summaryTotal">模型总数</div>
+          </div>
+          <div class="summary-card">
+            <div class="summary-value text-green-600" id="summary-success">0</div>
+            <div class="summary-label" data-i18n="modelTest.summarySuccess">成功</div>
+          </div>
+          <div class="summary-card">
+            <div class="summary-value text-red-600" id="summary-failed">0</div>
+            <div class="summary-label" data-i18n="modelTest.summaryFailed">失败</div>
+          </div>
+          <div class="summary-card">
+            <div class="summary-value text-blue-600" id="summary-progress">0 / 0</div>
+            <div class="summary-label" data-i18n="modelTest.summaryProgress">进度</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="model-test-table-shell rounded-lg overflow-hidden bg-white">
+        <div class="model-test-toolbar">
+          <div class="model-test-toolbar-text" id="model-test-status" data-i18n="modelTest.ready">就绪</div>
+        </div>
+        <div class="overflow-x-auto">
+          <table class="geist-table min-w-[860px]">
+            <thead>
+              <tr>
+                <th class="w-12">#</th>
+                <th class="text-left" data-i18n="modelTest.tableModel">模型</th>
+                <th class="w-24" data-i18n="modelTest.tableStatus">状态</th>
+                <th class="w-28" data-i18n="modelTest.tableHttpStatus">HTTP 状态</th>
+                <th class="text-left" data-i18n="modelTest.tableMessage">结果</th>
+                <th class="w-24" data-i18n="modelTest.tableActions">操作</th>
+              </tr>
+            </thead>
+            <tbody id="model-test-table-body"></tbody>
+          </table>
+        </div>
+        <div id="model-test-loading" class="text-center py-12 text-[var(--accents-4)]" data-i18n="common.loading">加载中...</div>
+      </div>
+    </div>
+  </main>
+  <div id="app-footer"></div>
+
+  <div id="model-test-detail-modal" class="modal-overlay hidden">
+    <div class="modal-content modal-lg" id="model-test-detail-modal-content">
+      <div class="modal-header">
+        <h3 class="modal-title" id="model-test-detail-title">模型测试详情</h3>
+        <button onclick="closeDetailModal()" class="modal-close">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <line x1="18" y1="6" x2="6" y2="18"></line>
+            <line x1="6" y1="6" x2="18" y2="18"></line>
+          </svg>
+        </button>
+      </div>
+      <div class="space-y-4">
+        <div>
+          <h4 class="text-sm font-semibold mb-2" data-i18n="modelTest.testRequest">请求信息</h4>
+          <div class="bg-gray-50 rounded p-3 space-y-2 font-mono text-xs">
+            <div>
+              <span class="font-semibold text-gray-600">URL:</span>
+              <div id="detail-request-url" class="text-gray-800 break-all mt-1"></div>
+            </div>
+            <div>
+              <span class="font-semibold text-gray-600">Headers:</span>
+              <pre id="detail-request-headers" class="text-gray-800 mt-1 overflow-x-auto whitespace-pre-wrap"></pre>
+            </div>
+            <div>
+              <span class="font-semibold text-gray-600">Body:</span>
+              <pre id="detail-request-body" class="text-gray-800 mt-1 overflow-x-auto whitespace-pre-wrap"></pre>
+            </div>
+          </div>
+        </div>
+        <div>
+          <h4 class="text-sm font-semibold mb-2" data-i18n="modelTest.testResponse">响应信息</h4>
+          <div class="bg-gray-50 rounded p-3 space-y-2 font-mono text-xs">
+            <div>
+              <span class="font-semibold text-gray-600">Status:</span>
+              <span id="detail-response-status" class="text-gray-800 ml-2"></span>
+            </div>
+            <div>
+              <span class="font-semibold text-gray-600">Headers:</span>
+              <pre id="detail-response-headers" class="text-gray-800 mt-1 overflow-x-auto whitespace-pre-wrap"></pre>
+            </div>
+            <div>
+              <span class="font-semibold text-gray-600">Body:</span>
+              <pre id="detail-response-body" class="text-gray-800 mt-1 overflow-x-auto whitespace-pre-wrap max-h-96"></pre>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="/static/i18n/i18n.js"></script>
+  <script src="/static/common/js/admin-auth.js?v=1.6.2"></script>
+  <script src="/static/common/js/header.js?v=1.6.2"></script>
+  <script src="/static/common/js/footer.js?v=1.6.2"></script>
+  <script src="/static/common/js/toast.js"></script>
+  <script src="/static/admin/js/model-test.js?v=1.6.2"></script>
+</body>
+
+</html>

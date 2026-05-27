@@ -598,3 +598,21 @@ async def test_token(data: dict[str, Any]) -> dict[str, Any]:
     except Exception as e:
         logger.error(f"Token test failed: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/tokens/test/models", dependencies=[Depends(verify_app_key)])
+async def list_testable_models() -> dict[str, Any]:
+    """返回可用于聊天测试的模型列表"""
+    from app.services.grok.services.model import ModelService
+
+    data = []
+    for model in ModelService.list():
+        if model.is_image or model.is_image_edit or model.is_video:
+            continue
+        data.append(
+            {
+                "id": model.model_id,
+                "display_name": model.display_name,
+            }
+        )
+    return {"object": "list", "data": data}
