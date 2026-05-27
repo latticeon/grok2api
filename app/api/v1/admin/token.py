@@ -444,6 +444,7 @@ async def test_token(data: dict[str, Any]) -> dict[str, Any]:
     from curl_cffi.requests import AsyncSession
     from app.services.reverse.utils.headers import build_headers
     from app.services.reverse.app_chat import AppChatReverse, CHAT_API
+    from app.services.grok.services.auto_model import is_auto_model
     from app.services.grok.services.model import ModelService
     from app.core.proxy_pool import get_current_proxy_from
     
@@ -460,6 +461,22 @@ async def test_token(data: dict[str, Any]) -> dict[str, Any]:
         
         model_id = req.model
         test_message = req.message.strip() or DEFAULT_TOKEN_TEST_MESSAGE
+        testable_models = [
+            m.model_id
+            for m in ModelService.list()
+            if not (
+                m.is_image
+                or m.is_image_edit
+                or m.is_video
+                or is_auto_model(m.model_id)
+            )
+        ]
+        if is_auto_model(model_id):
+            return {
+                "status": "failed",
+                "error": f"Auto model aliases are not directly testable: {model_id}",
+                "available_models": testable_models
+            }
         
         # 获取模型信息
         model_info = ModelService.get(model_id)
@@ -467,7 +484,7 @@ async def test_token(data: dict[str, Any]) -> dict[str, Any]:
             return {
                 "status": "failed",
                 "error": f"Invalid model: {model_id}",
-                "available_models": [m.model_id for m in ModelService.list() if not m.is_video]
+                "available_models": testable_models
             }
         
         grok_model = model_info.grok_model
@@ -603,11 +620,17 @@ async def test_token(data: dict[str, Any]) -> dict[str, Any]:
 @router.get("/tokens/test/models", dependencies=[Depends(verify_app_key)])
 async def list_testable_models() -> dict[str, Any]:
     """返回可用于聊天测试的模型列表"""
+    from app.services.grok.services.auto_model import is_auto_model
     from app.services.grok.services.model import ModelService
 
     data = []
     for model in ModelService.list():
-        if model.is_image or model.is_image_edit or model.is_video:
+        if (
+            model.is_image
+            or model.is_image_edit
+            or model.is_video
+            or is_auto_model(model.model_id)
+        ):
             continue
         data.append(
             {
