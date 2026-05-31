@@ -247,6 +247,19 @@ async def runtime_status():
     )
 
 
+@router.get("/models/auto/stats", tags=[_TAG_ADMIN_SYSTEM])
+async def admin_auto_model_stats():
+    from app.control.model.auto import (
+        snapshot_auto_model_stats,
+        snapshot_auto_model_target_stats,
+    )
+
+    return {
+        "auto_models": snapshot_auto_model_stats(),
+        "target_models": snapshot_auto_model_target_stats(),
+    }
+
+
 @router.post("/sync", tags=[_TAG_ADMIN_SYSTEM])
 async def force_sync():
     from app.dataplane.account import _directory

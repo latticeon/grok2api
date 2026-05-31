@@ -35,6 +35,9 @@ class ModelSpec:
     def is_chat(self) -> bool:
         return bool(self.capability & Capability.CHAT)
 
+    def is_auto_model(self) -> bool:
+        return self.model_name in {"grok-auto", "grok-auto-lite"}
+
     def is_image(self) -> bool:
         return bool(self.capability & Capability.IMAGE)
 

@@ -20,6 +20,12 @@ from app.platform.tokens import (
 )
 from app.control.account.runtime import get_refresh_service
 from app.control.account.invalid_credentials import feedback_kind_for_error
+from app.control.model.auto import (
+    is_auto_model,
+    order_auto_model_targets,
+    record_target_model_attempt,
+    resolve_auto_model_target,
+)
 from app.control.model.registry import resolve as resolve_model
 from app.control.model.enums import ModeId
 from app.control.account.enums import FeedbackKind
@@ -185,6 +191,29 @@ def _configured_retry_codes(cfg) -> frozenset[int]:
 def _should_retry_upstream(exc: UpstreamError, retry_codes: frozenset[int]) -> bool:
     """Return whether this upstream error should switch to another token."""
     return exc.status in retry_codes or is_invalid_credentials_error(exc)
+
+
+def _resolve_model_names(model: str) -> tuple[list[str], bool]:
+    if not is_auto_model(model):
+        return [model], False
+    models, by_success_rate = resolve_auto_model_target(model)
+    return order_auto_model_targets(models, by_success_rate=by_success_rate), by_success_rate
+
+
+def _raise_if_empty_response(adapter: StreamAdapter, *, model: str) -> None:
+    has_content = bool(
+        adapter.text_buf
+        or adapter.thinking_buf
+        or adapter.image_urls
+        or adapter.search_sources_list()
+        or adapter.annotations_list()
+    )
+    if not has_content:
+        raise UpstreamError(
+            f"Upstream returned an empty response for model {model}",
+            status=502,
+            body="empty_response",
+        )
 
 
 def _feedback_kind(exc: BaseException) -> "FeedbackKind":
@@ -465,6 +494,79 @@ async def completions(
     status codes (chat.retry_on_codes) up to chat.max_retries times.
     """
     cfg = get_config()
+    if is_auto_model(model):
+        effective_stream = stream if stream is not None else cfg.get_bool("features.stream", True)
+        targets, _ = _resolve_model_names(model)
+        if not targets:
+            raise ValidationError(
+                f"Auto model {model!r} has no valid chat models configured",
+                param="model",
+            )
+
+        async def _run_auto_stream(target_models: list[str]):
+            last_exc: BaseException | None = None
+            for index, target_model in enumerate(target_models):
+                try:
+                    result = await completions(
+                        model=target_model,
+                        messages=messages,
+                        stream=True,
+                        emit_think=emit_think,
+                        tools=tools,
+                        tool_choice=tool_choice,
+                        temperature=temperature,
+                        top_p=top_p,
+                        request_overrides=request_overrides,
+                    )
+                except UpstreamError as exc:
+                    last_exc = exc
+                    continue
+
+                emitted = False
+                try:
+                    async for chunk in result:  # type: ignore[union-attr]
+                        emitted = True
+                        yield chunk
+                    record_auto_model_attempt(model, True)
+                    return
+                except UpstreamError as exc:
+                    last_exc = exc
+                    if emitted or index == len(target_models) - 1:
+                        record_auto_model_attempt(model, False)
+                        raise
+                    continue
+
+            record_auto_model_attempt(model, False)
+            if last_exc is not None:
+                raise last_exc
+            raise RateLimitError("No available auto model target")
+
+        if effective_stream:
+            return _run_auto_stream(targets)
+
+        last_exc: BaseException | None = None
+        for target_model in targets:
+            try:
+                result = await completions(
+                    model=target_model,
+                    messages=messages,
+                    stream=False,
+                    emit_think=emit_think,
+                    tools=tools,
+                    tool_choice=tool_choice,
+                    temperature=temperature,
+                    top_p=top_p,
+                    request_overrides=request_overrides,
+                )
+                record_auto_model_attempt(model, True)
+                return result
+            except UpstreamError as exc:
+                last_exc = exc
+
+        record_auto_model_attempt(model, False)
+        if last_exc is not None:
+            raise last_exc
+        raise RateLimitError("No available auto model target")
     spec = resolve_model(model)
     is_stream = stream if stream is not None else cfg.get_bool("features.stream", True)
     if emit_think is None:
@@ -646,6 +748,7 @@ async def completions(
                                 )
                                 yield f"data: {orjson.dumps(chunk).decode()}\n\n"
 
+                            _raise_if_empty_response(adapter, model=model)
                             chat_anns = _to_chat_annotations(collected_annotations)
                             final = make_stream_chunk(
                                 response_id,
@@ -661,6 +764,7 @@ async def completions(
                             yield f"data: {orjson.dumps(final).decode()}\n\n"
                             yield "data: [DONE]\n\n"
                             success = True
+                            record_target_model_attempt(model, True)
                             logger.info(
                                 "chat stream completed: attempt={}/{} model={} image_count={}",
                                 attempt + 1,
@@ -716,6 +820,8 @@ async def completions(
                         ).add_done_callback(_log_task_exception)
 
                 if success or not _retry:
+                    if fail_exc and not success:
+                        record_target_model_attempt(model, False)
                     return
                 excluded.append(token)
 
@@ -764,7 +870,9 @@ async def completions(
                             break
                     if ended:
                         break
+                _raise_if_empty_response(adapter, model=model)
                 success = True
+                record_target_model_attempt(model, True)
 
             except UpstreamError as exc:
                 fail_exc = exc
@@ -808,6 +916,8 @@ async def completions(
                 ).add_done_callback(_log_task_exception)
 
         if success or not _retry:
+            if fail_exc and not success:
+                record_target_model_attempt(model, False)
             break
         excluded.append(token)
 

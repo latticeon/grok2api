@@ -285,6 +285,39 @@
     }
     .cfg-rand-btn:hover { background:#f3f3f3; border-color:#dddddd; color:#222 }
 
+    .auto-stats-box {
+      width:100%;
+      display:grid;
+      gap:6px;
+      padding:8px 10px;
+      border-radius:10px;
+      border:1px solid #ececec;
+      background:#fbfbfb;
+    }
+    .auto-stats-item {
+      min-width:0;
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      gap:10px;
+      font-size:12px;
+      line-height:1.35;
+    }
+    .auto-stats-name {
+      min-width:0;
+      overflow:hidden;
+      text-overflow:ellipsis;
+      white-space:nowrap;
+      color:#444;
+      font-family:ui-monospace,monospace;
+    }
+    .auto-stats-rate {
+      flex:0 0 auto;
+      color:#666;
+      font-variant-numeric:tabular-nums;
+    }
+    .auto-stats-empty { color:#999; font-size:12px }
+
     /* Save bar */
     .save-bar {
       position:fixed;
@@ -449,6 +482,16 @@ const SCHEMA_DEF = [
           { key: 'enable_nsfw', label: '允许 NSFW 生成', labelKey: 'config.schema.fields.enableNsfw.label', type: 'bool', desc: '允许图像生成接口绕过 NSFW 内容过滤。', descKey: 'config.schema.fields.enableNsfw.desc' },
           { key: 'show_search_sources', label: '正文追加信源', labelKey: 'config.schema.fields.showSearchSources.label', type: 'bool', desc: '搜索信源始终以 search_sources 字段输出。此选项控制是否同时在正文末尾追加 ## Sources 段落（兼容文本解析客户端）。', descKey: 'config.schema.fields.showSearchSources.desc' },
           { key: 'custom_instruction', label: '全局附加指令', labelKey: 'config.schema.fields.customInstruction.label', type: 'textarea', desc: '为每次请求注入统一的 system 消息，用于约束模型行为或固定角色设定。', descKey: 'config.schema.fields.customInstruction.desc' },
+        ]
+      },
+      {
+        title: '自动模型集',
+        section: 'auto_models',
+        fields: [
+          { key: 'grok_auto', label: 'grok-auto 模型集', type: 'textarea', desc: '一行一个真实聊天模型名。请求 grok-auto 时按顺序尝试，开启成功率调用后按近一小时成功率优先。' },
+          { key: 'grok_auto_lite', label: 'grok-auto-lite 模型集', type: 'textarea', desc: '一行一个真实聊天模型名。请求 grok-auto-lite 时按顺序尝试，开启成功率调用后按近一小时成功率优先。' },
+          { key: 'success_rate_routing', label: '按成功率调用', type: 'bool', desc: '开启后自动模型集会优先调用近一小时成功率更高的模型。' },
+          { key: '_auto_stats', label: '近一小时成功率', type: 'auto_stats', desc: '显示两个自动模型集里配置模型的近一小时成功率。' },
         ]
       },
       {
@@ -746,6 +789,7 @@ let _conditionalRows = [];
 let _selectRefs = [];
 let _showIfDeps = new Map();
 let _disabledSelectDeps = new Map();
+let _autoModelStats = null;
 
 function tr(key, params, fallback) {
   if (!key) return fallback ?? '';
@@ -861,6 +905,14 @@ async function _api(method, path, body) {
   });
   if (!r.ok) { const d = await r.json().catch(() => ({})); throw new Error(d.detail || r.status); }
   return r.json();
+}
+
+async function loadAutoModelStats() {
+  try {
+    _autoModelStats = await _api('GET', '/models/auto/stats');
+  } catch {
+    _autoModelStats = null;
+  }
 }
 
 // ── Schema helpers ─────────────────────────────────────────────────────────
@@ -1002,6 +1054,10 @@ document.addEventListener('click', (event) => {
 function renderInput(field, section, value) {
   const fp = _fullPath(section, field.key);
 
+  if (field.type === 'auto_stats') {
+    return renderAutoModelStats();
+  }
+
   const onChange = (v) => {
     const wasDirty = fp in _dirty;
     const orig = _getValue(section, field.key);
@@ -1091,6 +1147,58 @@ function renderInput(field, section, value) {
   }
 
   return inp;
+}
+
+function _autoStatsModels() {
+  const a = String(_getCurrentValue('auto_models', 'grok_auto') || '').split(/\r?\n/).map(s => s.trim()).filter(Boolean);
+  const b = String(_getCurrentValue('auto_models', 'grok_auto_lite') || '').split(/\r?\n/).map(s => s.trim()).filter(Boolean);
+  return [...new Set([...a, ...b])];
+}
+
+function renderAutoModelStats() {
+  const box = _el('div', { class: 'auto-stats-box' });
+  const targetStats = _autoModelStats?.target_models || {};
+  const names = _autoStatsModels();
+  if (!names.length) {
+    box.appendChild(_el('div', { class: 'auto-stats-empty' }, '未配置自动模型'));
+    return box;
+  }
+  names.forEach((name) => {
+    const stat = targetStats[name] || {};
+    const total = Number(stat.total_hour || 0);
+    const rate = Number(stat.success_rate_hour || 0);
+    const label = total ? `${Math.round(rate * 100)}%` : '暂无数据';
+    box.appendChild(_el('div', { class: 'auto-stats-item' },
+      _el('span', { class: 'auto-stats-name' }, name),
+      _el('span', { class: 'auto-stats-rate' }, label),
+    ));
+  });
+  return box;
+}
+
+function renderAutoModelPanel(section) {
+  const box = _el('div', { class: 'auto-stats-box' });
+  const models = _autoStatsModels();
+  const routingOn = Boolean(_getCurrentValue('auto_models', 'success_rate_routing'));
+  box.appendChild(_el('div', { class: 'auto-stats-item' },
+    _el('span', { class: 'auto-stats-name' }, routingOn ? '成功率调用已开启' : '成功率调用已关闭'),
+    _el('span', { class: 'auto-stats-rate' }, routingOn ? '按成功率排序' : '按配置顺序'),
+  ));
+  if (!models.length) {
+    box.appendChild(_el('div', { class: 'auto-stats-empty' }, '未配置自动模型'));
+    return box;
+  }
+  models.forEach((name) => {
+    const stat = (_autoModelStats?.target_models || {})[name] || {};
+    const total = Number(stat.total_hour || 0);
+    const rate = Number(stat.success_rate_hour || 0);
+    const label = total ? `${Math.round(rate * 100)}% / ${total}` : '暂无数据';
+    box.appendChild(_el('div', { class: 'auto-stats-item' },
+      _el('span', { class: 'auto-stats-name' }, name),
+      _el('span', { class: 'auto-stats-rate' }, label),
+    ));
+  });
+  return box;
 }
 
 function renderRow(field, section, tabId) {
@@ -1272,6 +1380,7 @@ function _refreshDirtyState({ autoNormalizeSelects = true, changedPaths = null }
 async function load() {
   try {
     _cfg = await _api('GET', '/config');
+    await loadAutoModelStats();
     _dirty = {};
     _configLoaded = true;
     if (!SCHEMA.length) SCHEMA = buildSchema();
@@ -1294,6 +1403,7 @@ async function doSave() {
   try {
     showToast(tr('config.saving', null, '正在保存更改…'), 'info');
     await _api('POST', '/config', patch);
+    await loadAutoModelStats();
     // Merge into local _cfg so re-render shows correct values.
     Object.entries(_dirty).forEach(([fp, v]) => _setByPath(_cfg, fp, v));
     _dirty = {};

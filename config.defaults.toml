@@ -44,6 +44,13 @@ show_search_sources = false
 # 全局附加指令
 custom_instruction = ""
 
+# 自动模型集：一行一个真实聊天模型名。
+# 请求 grok-auto / grok-auto-lite 时会按这里的顺序尝试；开启 success_rate_routing 后按近一小时成功率优先。
+[auto_models]
+grok_auto = "grok-4.20-auto\ngrok-4.20-expert\ngrok-4.20-fast"
+grok_auto_lite = "grok-4.20-fast\ngrok-4.20-0309-non-reasoning"
+success_rate_routing = false
+
 # 图片返回格式
 #   grok_url  — 直接返回 Grok CDN URL
 #   local_url — 下载后存本地，返回本地代理 URL

@@ -80,6 +80,21 @@ async def list_models(request: Request):
     return JSONResponse({"object": "list", "data": models})
 
 
+@router.get("/models/auto/stats", tags=[_TAG_MODELS])
+async def auto_model_stats_endpoint():
+    from app.control.model.auto import (
+        snapshot_auto_model_stats,
+        snapshot_auto_model_target_stats,
+    )
+
+    return JSONResponse(
+        {
+            "auto_models": snapshot_auto_model_stats(),
+            "target_models": snapshot_auto_model_target_stats(),
+        }
+    )
+
+
 @router.get(
     "/models/{model_id}", tags=[_TAG_MODELS], dependencies=[Depends(verify_api_key)]
 )
