@@ -679,6 +679,35 @@
     .dialog-btn-danger:hover {
       background:#feeceb;
     }
+    .test-detail-grid {
+      display:grid;
+      grid-template-columns:1fr 1fr;
+      gap:10px;
+    }
+    .test-detail-block {
+      min-width:0;
+      display:grid;
+      gap:6px;
+    }
+    .test-detail-title {
+      font-size:11px;
+      color:#8f8f8f;
+      font-weight:600;
+    }
+    .test-detail-pre {
+      max-height:180px;
+      overflow:auto;
+      padding:9px 10px;
+      border-radius:10px;
+      background:#f7f7f7;
+      color:#333;
+      font:11px/1.45 ui-monospace,monospace;
+      white-space:pre-wrap;
+      overflow-wrap:anywhere;
+    }
+    @media (max-width: 720px) {
+      .test-detail-grid { grid-template-columns:1fr }
+    }
 
     /* Import modal */
     .import-file-input { position:absolute; width:1px; height:1px; opacity:0; pointer-events:none }
@@ -1084,6 +1113,40 @@
   </div>
 </div>
 
+<!-- ── Token Test Modal ─────────────────────────────────────────────────── -->
+<div class="modal-overlay" id="modal-token-test">
+  <div class="modal" style="width:min(860px,96vw);max-width:860px">
+    <div class="modal-title">Token 测试</div>
+    <div class="dialog-body">
+      <div class="dialog-field">
+        <span class="dialog-label">Token</span>
+        <input class="input" id="token-test-token" readonly>
+      </div>
+      <div class="dialog-field">
+        <span class="dialog-label">模型</span>
+        <select class="input" id="token-test-model" style="flex:1"></select>
+      </div>
+      <div class="dialog-field">
+        <span class="dialog-label">消息</span>
+        <textarea class="input dialog-textarea" id="token-test-message" rows="4">你好</textarea>
+      </div>
+      <div class="dialog-help" id="token-test-status">请选择模型后点击测试。</div>
+      <div class="test-detail-grid">
+        <div class="test-detail-block"><div class="test-detail-title">请求体</div><pre class="test-detail-pre" id="token-test-request-body"></pre></div>
+        <div class="test-detail-block"><div class="test-detail-title">请求头</div><pre class="test-detail-pre" id="token-test-request-headers"></pre></div>
+        <div class="test-detail-block"><div class="test-detail-title">响应体</div><pre class="test-detail-pre" id="token-test-response-body"></pre></div>
+        <div class="test-detail-block"><div class="test-detail-title">响应头</div><pre class="test-detail-pre" id="token-test-response-headers"></pre></div>
+        <div class="test-detail-block"><div class="test-detail-title">AI 返回内容</div><pre class="test-detail-pre" id="token-test-ai-content"></pre></div>
+        <div class="test-detail-block"><div class="test-detail-title">耗时</div><pre class="test-detail-pre" id="token-test-duration"></pre></div>
+      </div>
+    </div>
+    <div class="dialog-actions">
+      <button onclick="closeModal('modal-token-test')" class="dialog-btn">关闭</button>
+      <button onclick="doTokenTest()" class="dialog-btn dialog-btn-primary">测试</button>
+    </div>
+  </div>
+</div>
+
 <script src="/static/js/i18n.js?v={{APP_VERSION}}"></script>
 <script src="/static/js/auth.js?v={{APP_VERSION}}"></script>
 <script src="/static/js/admin-header.js?v={{APP_VERSION}}"></script>
@@ -1103,6 +1166,8 @@ let _filterMenuBound = false;
 let _tokenViewVersion = 0;
 let _tokenViewCacheKey = '';
 let _tokenViewCache = null;
+let _tokenTestToken = '';
+let _tokenTestModels = [];
 
 function invalidateTokenView() {
   _tokenViewVersion += 1;
@@ -1113,6 +1178,17 @@ function invalidateTokenView() {
 function tr(key, params, fallback) {
   const value = t(key, params);
   return value === key ? (fallback ?? key) : value;
+}
+
+async function _adminApi(method, path, body) {
+  const key = await adminKey.get();
+  const r = await fetch(ADMIN_API + path, {
+    method,
+    headers: { ...(body != null && { 'Content-Type': 'application/json' }), Authorization: `Bearer ${key}` },
+    ...(body != null && { body: JSON.stringify(body) }),
+  });
+  if (!r.ok) { const d = await r.json().catch(() => ({})); throw new Error(d.detail || r.status); }
+  return r.json();
 }
 
 function applyAccountI18n() {
@@ -1141,6 +1217,10 @@ function applyAccountI18n() {
   const pageSizeSel = document.getElementById('page-size-sel');
   if (pageSizeSel) pageSizeSel.value = String(pageSize);
   updateImportFileState();
+  const tokenTestModel = document.getElementById('token-test-model');
+  if (tokenTestModel && !_tokenTestModels.length) {
+    loadTokenTestModels().catch(() => {});
+  }
   render();
 }
 
@@ -1494,6 +1574,9 @@ function rowHtml(t) {
     <td class="table-center" style="font-variant-numeric:tabular-nums;color:#9a9a9a">${fmtRate(success, fail)}</td>
     <td style="font-size:12px;color:#9a9a9a">${fmtDate(t.last_used_at)}</td>
     <td><div class="row-actions">
+      <button onclick="openTokenTest('${xe(t.token)}')" class="row-icon-btn" data-tip="${xe(tr('account.actionTest', null, '测试'))}" aria-label="${xe(tr('account.actionTest', null, '测试'))}">
+        <svg viewBox="0 0 24 24" stroke-width="1.8"><path d="M9 18h6"/><path d="M12 6v12"/><path d="M8 10l4-4 4 4"/></svg>
+      </button>
       ${nsfwBtn}
       <button onclick="${isDisabled ? `restoreOne('${xe(t.token)}')` : `disableOne('${xe(t.token)}')`}" class="row-icon-btn row-icon-btn-state" data-tip="${xe(isDisabled ? tr('account.actionRestore', null, '恢复账号') : tr('account.actionDisable', null, '禁用账号'))}" aria-label="${xe(isDisabled ? tr('account.actionRestore', null, '恢复账号') : tr('account.actionDisable', null, '禁用账号'))}">
         ${isDisabled
@@ -1750,6 +1833,46 @@ function updateImportFileState() {
   if (hint) hint.textContent = isJson
     ? tr('account.importHintJson', null, 'JSON 文件已包含 pool 信息，无需选择类型')
     : tr('account.importHintTxt', null, '每行一个 Token，将添加到所选类型');
+}
+
+async function loadTokenTestModels() {
+  const data = await _adminApi('GET', '/testing/chat-models');
+  _tokenTestModels = Array.isArray(data.models) ? data.models : [];
+  const sel = document.getElementById('token-test-model');
+  if (!sel) return;
+  sel.innerHTML = _tokenTestModels.map(m => `<option value="${xe(m.id)}">${xe(m.name || m.id)}</option>`).join('');
+}
+
+function openTokenTest(token) {
+  _tokenTestToken = token;
+  document.getElementById('token-test-token').value = token;
+  document.getElementById('token-test-message').value = '你好';
+  document.getElementById('token-test-status').textContent = '请选择模型后点击测试。';
+  ['request-body','request-headers','response-body','response-headers','ai-content','duration'].forEach((k) => {
+    document.getElementById(`token-test-${k}`).textContent = '';
+  });
+  loadTokenTestModels().then(() => openModal('modal-token-test')).catch((e) => showToast(`加载模型失败: ${e.message}`, 'error'));
+}
+
+async function doTokenTest() {
+  const model = document.getElementById('token-test-model').value;
+  const message = document.getElementById('token-test-message').value;
+  if (!_tokenTestToken) return;
+  if (!model) return showToast('请选择模型', 'error');
+  try {
+    document.getElementById('token-test-status').textContent = '正在测试...';
+    const d = await _adminApi('POST', '/testing/token', { token: _tokenTestToken, model, message });
+    document.getElementById('token-test-status').textContent = d.ok ? '测试完成' : `测试失败: ${d.error || 'unknown'}`;
+    document.getElementById('token-test-request-body').textContent = JSON.stringify(d.request_body, null, 2);
+    document.getElementById('token-test-request-headers').textContent = JSON.stringify(d.request_headers, null, 2);
+    document.getElementById('token-test-response-body').textContent = String(d.response_body || '');
+    document.getElementById('token-test-response-headers').textContent = JSON.stringify(d.response_headers, null, 2);
+    document.getElementById('token-test-ai-content').textContent = String(d.ai_content || '');
+    document.getElementById('token-test-duration').textContent = `${d.duration_ms ?? 0} ms`;
+  } catch (e) {
+    document.getElementById('token-test-status').textContent = `测试失败: ${e.message}`;
+    showToast(`测试失败: ${e.message}`, 'error');
+  }
 }
 
 async function saveTokens(pool, newToks, modalId, pendingMessage, successPrefix, errorPrefix) {
