@@ -13,6 +13,7 @@ from fastapi.responses import Response
 from pydantic import RootModel
 
 from app.control.account.backends.factory import get_repository_backend
+from app.control.monitoring import monitor
 from app.platform.auth.middleware import verify_admin_key
 from app.platform.config.snapshot import config
 from app.platform.errors import AppError, ErrorKind, ValidationError
@@ -172,6 +173,44 @@ router.include_router(_batch_router)
 router.include_router(_assets_router)
 router.include_router(_cache_router)
 router.include_router(_testing_router)
+
+
+@router.get("/monitor", tags=["Admin - System"])
+async def get_monitor_status():
+    return await monitor.status()
+
+
+@router.get("/monitor/list", tags=["Admin - System"])
+async def get_monitor_list():
+    return await monitor.list()
+
+
+@router.post("/monitor/start", tags=["Admin - System"])
+async def start_monitor():
+    return await monitor.start()
+
+
+@router.post("/monitor/stop", tags=["Admin - System"])
+async def stop_monitor():
+    return await monitor.stop()
+
+
+@router.post("/monitor/clear", tags=["Admin - System"])
+async def clear_monitor():
+    return await monitor.clear()
+
+
+@router.get("/monitor/{record_id}", tags=["Admin - System"])
+async def get_monitor_record(record_id: str):
+    record = await monitor.detail(record_id)
+    if record is None:
+        raise AppError(
+            "Record not found",
+            kind=ErrorKind.VALIDATION,
+            code="record_not_found",
+            status=404,
+        )
+    return record
 
 
 # ---------------------------------------------------------------------------

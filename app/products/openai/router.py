@@ -3,13 +3,15 @@
 import base64
 import binascii
 import mimetypes
-from typing import Annotated, AsyncGenerator, AsyncIterable, Literal
+import time
+from typing import Annotated, Any, AsyncGenerator, AsyncIterable, Literal
 
 import orjson
 from fastapi import APIRouter, Depends, File, Form, Query, Request, UploadFile
 from fastapi.responses import JSONResponse, StreamingResponse, FileResponse
 
 from app.control.account.state_machine import is_manageable
+from app.control.monitoring import monitor
 from app.platform.auth.middleware import verify_api_key
 from app.platform.errors import AppError, ValidationError
 from app.platform.logging.logger import logger
@@ -149,6 +151,38 @@ async def _safe_sse(stream: AsyncIterable[str]) -> AsyncGenerator[str, None]:
 _SSE_HEADERS = {"Cache-Control": "no-cache", "Connection": "keep-alive"}
 
 
+def _extract_chat_response_text(response: dict) -> tuple[str, str]:
+    try:
+        message = (response.get("choices") or [{}])[0].get("message") or {}
+    except Exception:
+        return "", ""
+    return str(message.get("content") or ""), str(message.get("reasoning_content") or "")
+
+
+def _extract_stream_response_text(stream_body: str) -> tuple[str, str]:
+    content_parts: list[str] = []
+    reasoning_parts: list[str] = []
+    for block in stream_body.split("\n\n"):
+        for raw_line in block.splitlines():
+            line = raw_line.strip()
+            if not line.startswith("data:"):
+                continue
+            data = line[5:].strip()
+            if not data or data == "[DONE]":
+                continue
+            try:
+                payload = orjson.loads(data)
+            except orjson.JSONDecodeError:
+                continue
+            for choice in payload.get("choices") or []:
+                delta = choice.get("delta") or {}
+                if delta.get("content"):
+                    content_parts.append(str(delta["content"]))
+                if delta.get("reasoning_content"):
+                    reasoning_parts.append(str(delta["reasoning_content"]))
+    return "".join(content_parts), "".join(reasoning_parts)
+
+
 # ---------------------------------------------------------------------------
 # /v1/chat/completions
 # ---------------------------------------------------------------------------
@@ -228,7 +262,11 @@ async def _upload_to_data_uri(upload: UploadFile, *, param: str) -> str:
 @router.post(
     "/chat/completions", tags=[_TAG_CHAT], dependencies=[Depends(verify_api_key)]
 )
-async def chat_completions_endpoint(req: ChatCompletionRequest):
+async def chat_completions_endpoint(
+    req: ChatCompletionRequest,
+    request: Request,
+):
+    request_started = time.perf_counter()
     _validate_chat(req)
     from app.platform.config.snapshot import get_config
 
@@ -244,7 +282,14 @@ async def chat_completions_endpoint(req: ChatCompletionRequest):
             param="model",
             code="model_not_found",
         )
+    request_path = request.url.path
+    record_enabled = monitor.enabled and request_path == "/v1/chat/completions"
+    monitor_meta: dict[str, Any] | None = {} if record_enabled else None
     messages = [m.model_dump(exclude_none=True) for m in req.messages]
+    request_body = req.model_dump(exclude_none=True)
+    request_headers = {str(k): str(v) for k, v in request.headers.items()}
+    response_headers: dict[str, str] = {}
+    response_status = 0
 
     try:
         # Dispatch by model capability.
@@ -324,9 +369,38 @@ async def chat_completions_endpoint(req: ChatCompletionRequest):
                 tool_choice=req.tool_choice,
                 temperature=req.temperature or 0.8,
                 top_p=req.top_p or 0.95,
+                monitor_meta=monitor_meta,
             )
 
-    except AppError:
+        if isinstance(result, dict):
+            response_status = 200
+            response_headers = {"content-type": "application/json"}
+        else:
+            response_status = 200
+            response_headers = dict(_SSE_HEADERS)
+
+    except AppError as exc:
+        response_status = getattr(exc, "status", 500)
+        response_headers = {}
+        if record_enabled:
+            await monitor.append(
+                {
+                    "method": "POST",
+                    "path": "/v1/chat/completions",
+                    "query": "",
+                    "request_headers": request_headers,
+                    "request_body": request_body,
+                    "request_body_size": len(orjson.dumps(request_body)),
+                    "token": (monitor_meta or {}).get("token", ""),
+                    "response_status": response_status,
+                    "response_headers": response_headers,
+                    "response_body": exc.to_dict(),
+                    "ai_content": "",
+                    "reasoning_content": "",
+                    "response_body_size": len(orjson.dumps(exc.to_dict())),
+                    "duration_ms": round((time.perf_counter() - request_started) * 1000, 2),
+                }
+            )
         raise
     except Exception as exc:
         logger.exception(
@@ -336,16 +410,36 @@ async def chat_completions_endpoint(req: ChatCompletionRequest):
             exc,
         )
         if is_stream:
-            _err_msg = str(
-                exc
-            )  # capture before Python clears the except-scope variable
+            _err_msg = str(exc)  # capture before Python clears the except-scope variable
+            error_payload = orjson.dumps(
+                {"error": {"message": _err_msg, "type": "server_error"}}
+            ).decode()
 
             async def _err_stream():
-                payload = orjson.dumps(
-                    {"error": {"message": _err_msg, "type": "server_error"}}
-                ).decode()
-                yield f"event: error\ndata: {payload}\n\n"
+                yield f"event: error\ndata: {error_payload}\n\n"
                 yield "data: [DONE]\n\n"
+
+            response_status = 500
+            response_headers = dict(_SSE_HEADERS)
+            if record_enabled:
+                await monitor.append(
+                    {
+                        "method": "POST",
+                        "path": "/v1/chat/completions",
+                        "query": "",
+                        "request_headers": request_headers,
+                        "request_body": request_body,
+                        "request_body_size": len(orjson.dumps(request_body)),
+                        "token": (monitor_meta or {}).get("token", ""),
+                        "response_status": response_status,
+                        "response_headers": response_headers,
+                        "response_body": {"error": {"message": _err_msg, "type": "server_error"}},
+                        "ai_content": "",
+                        "reasoning_content": "",
+                        "response_body_size": len(error_payload.encode("utf-8")),
+                        "duration_ms": round((time.perf_counter() - request_started) * 1000, 2),
+                    }
+                )
 
             return StreamingResponse(
                 _err_stream(), media_type="text/event-stream", headers=_SSE_HEADERS
@@ -353,9 +447,59 @@ async def chat_completions_endpoint(req: ChatCompletionRequest):
         raise
 
     if isinstance(result, dict):
+        ai_content, reasoning_content = _extract_chat_response_text(result)
+        if record_enabled:
+            await monitor.append(
+                {
+                    "method": "POST",
+                    "path": "/v1/chat/completions",
+                    "query": "",
+                    "request_headers": request_headers,
+                    "request_body": request_body,
+                    "request_body_size": len(orjson.dumps(request_body)),
+                    "token": (monitor_meta or {}).get("token", ""),
+                    "response_status": response_status,
+                    "response_headers": response_headers,
+                    "response_body": result,
+                    "ai_content": ai_content,
+                    "reasoning_content": reasoning_content,
+                    "response_body_size": len(orjson.dumps(result)),
+                    "duration_ms": round((time.perf_counter() - request_started) * 1000, 2),
+                }
+            )
         return JSONResponse(result)
+
+    async def _recorded_stream():
+        chunks: list[str] = []
+        try:
+            async for chunk in _safe_sse(result):
+                chunks.append(chunk)
+                yield chunk
+        finally:
+            if record_enabled:
+                response_body = "".join(chunks)
+                ai_content, reasoning_content = _extract_stream_response_text(response_body)
+                await monitor.append(
+                    {
+                        "method": "POST",
+                        "path": "/v1/chat/completions",
+                        "query": "",
+                        "request_headers": request_headers,
+                        "request_body": request_body,
+                        "request_body_size": len(orjson.dumps(request_body)),
+                        "token": (monitor_meta or {}).get("token", ""),
+                        "response_status": response_status,
+                        "response_headers": response_headers,
+                        "response_body": response_body,
+                        "ai_content": ai_content,
+                        "reasoning_content": reasoning_content,
+                        "response_body_size": len(response_body.encode("utf-8")),
+                        "duration_ms": round((time.perf_counter() - request_started) * 1000, 2),
+                    }
+                )
+
     return StreamingResponse(
-        _safe_sse(result), media_type="text/event-stream", headers=_SSE_HEADERS
+        _recorded_stream(), media_type="text/event-stream", headers=_SSE_HEADERS
     )
 
 

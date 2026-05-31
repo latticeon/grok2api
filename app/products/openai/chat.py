@@ -490,6 +490,7 @@ async def completions(
     temperature: float = 0.8,
     top_p: float = 0.95,
     request_overrides: dict | None = None,
+    monitor_meta: dict[str, Any] | None = None,
 ) -> dict | AsyncGenerator[str, None]:
     """Entry point for /v1/chat/completions.
 
@@ -521,6 +522,7 @@ async def completions(
                         temperature=temperature,
                         top_p=top_p,
                         request_overrides=request_overrides,
+                        monitor_meta=monitor_meta,
                     )
                 except UpstreamError as exc:
                     last_exc = exc
@@ -561,6 +563,7 @@ async def completions(
                     temperature=temperature,
                     top_p=top_p,
                     request_overrides=request_overrides,
+                    monitor_meta=monitor_meta,
                 )
                 record_auto_model_attempt(model, True)
                 return result
@@ -622,6 +625,8 @@ async def completions(
                     raise RateLimitError("No available accounts for this model tier")
 
                 token = acct.token
+                if monitor_meta is not None:
+                    monitor_meta["token"] = token
                 success = False
                 _retry = False
                 fail_exc: BaseException | None = None
@@ -846,6 +851,8 @@ async def completions(
             raise RateLimitError("No available accounts for this model tier")
 
         token = acct.token
+        if monitor_meta is not None:
+            monitor_meta["token"] = token
         success = False
         _retry = False
         fail_exc: BaseException | None = None

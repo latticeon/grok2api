@@ -1,0 +1,264 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Grok2API - 请求监控</title>
+  <link rel="icon" href="/favicon.ico?v={{APP_VERSION}}">
+  <link href="https://cdn.jsdelivr.net/npm/geist@1.0.0/dist/fonts/geist-sans/style.css" rel="stylesheet">
+  <link href="/static/css/app.css?v={{APP_VERSION}}" rel="stylesheet">
+  <style>
+    body { background:#FAF9F5 }
+    .page-hd { display:flex; align-items:flex-start; justify-content:space-between; gap:16px; margin-bottom:18px }
+    .page-title { font-size:22px; font-weight:700; line-height:1.2 }
+    .page-sub { font-size:13px; color:var(--fg-muted); margin-top:5px }
+    .page-actions { display:flex; gap:8px; flex-wrap:wrap }
+    .btn-pill { height:32px; padding:0 14px; border-radius:999px; border:1px solid #e6e6e6; background:#fafafa; color:#444; font-size:13px; font-weight:600 }
+    .btn-pill:hover { background:#f3f3f3; border-color:#dcdcdc }
+    .btn-pill-primary { background:#111; border-color:#111; color:#fff }
+    .btn-pill-primary:hover { background:#222; border-color:#222 }
+    .btn-pill-danger { color:#b44b43 }
+    .btn-pill-danger:hover { background:#fdf2f1; border-color:#efc9c5 }
+    .stat-row { display:grid; grid-template-columns:repeat(3, minmax(0, 1fr)); gap:12px; margin-bottom:16px }
+    .stat-box { background:#fff; border-radius:12px; padding:14px 16px; min-height:84px; display:grid; gap:8px }
+    .stat-label { font-size:11px; color:#999; font-weight:600; letter-spacing:.01em }
+    .stat-value { font-size:24px; font-weight:700; line-height:1 }
+    .panel { background:#fff; border-radius:12px; overflow:hidden }
+    .toolbar { display:flex; justify-content:space-between; align-items:center; gap:10px; padding:12px 14px; border-bottom:1px solid #f2f2f2 }
+    .toolbar-meta { font-size:12px; color:#999 }
+    .table-wrap { overflow:auto }
+    table { width:100%; border-collapse:collapse; min-width:960px }
+    th, td { padding:12px 14px; text-align:left; vertical-align:top }
+    th { font-size:11px; color:#999; font-weight:600; white-space:nowrap }
+    td { font-size:13px; color:#3c3c3c; border-top:1px solid #f5f5f5 }
+    tr:hover td { background:#fcfcfc }
+    .mono { font-family:'Geist Mono','Courier New',monospace; font-size:12px; word-break:break-all }
+    .badge { display:inline-flex; align-items:center; height:20px; padding:0 8px; border-radius:999px; background:#f5f5f5; color:#666; font-size:11px; font-weight:600 }
+    .status-on { background:#eef7f0; color:#2c7a4b }
+    .status-off { background:#f7f3ef; color:#a56a3f }
+    .muted { color:#aaa }
+    .detail-pre { max-height:220px; overflow:auto; padding:10px 12px; border-radius:10px; background:#f7f7f7; white-space:pre-wrap; overflow-wrap:anywhere; font:11px/1.5 'Geist Mono','Courier New',monospace }
+    .detail-grid { display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-top:12px }
+    .detail-block { min-width:0; display:grid; gap:6px }
+    .detail-title { font-size:11px; color:#8f8f8f; font-weight:600 }
+    .modal .modal-title { margin-bottom:8px }
+    .dialog-actions { display:flex; justify-content:flex-end; gap:8px; margin-top:16px }
+    .dialog-btn { height:32px; padding:0 14px; border-radius:999px; border:1px solid #e6e6e6; background:#fafafa; color:#444; font-size:13px; font-weight:600 }
+    .dialog-btn:hover { background:#f3f3f3 }
+    @media (max-width: 760px) {
+      .page-hd, .toolbar { flex-direction:column; align-items:flex-start }
+      .stat-row, .detail-grid { grid-template-columns:1fr }
+    }
+  </style>
+</head>
+<body>
+<div id="admin-header" data-active="/admin/monitor"></div>
+<main class="admin-main">
+  <div class="page-hd">
+    <div>
+      <div class="page-title">请求监控</div>
+      <div class="page-sub">录制 `/v1/chat/completions` 的完整请求头、请求体、响应头和响应体。</div>
+    </div>
+    <div class="page-actions">
+      <button class="btn-pill btn-pill-primary" id="btn-start" onclick="startRecording()">开始录制</button>
+      <button class="btn-pill" id="btn-stop" onclick="stopRecording()">停止录制</button>
+      <button class="btn-pill btn-pill-danger" id="btn-clear" onclick="clearRecords()">清空记录</button>
+    </div>
+  </div>
+
+  <div class="stat-row">
+    <div class="stat-box"><div class="stat-label">录制状态</div><div class="stat-value" id="stat-status">—</div></div>
+    <div class="stat-box"><div class="stat-label">记录数量</div><div class="stat-value" id="stat-count">—</div></div>
+    <div class="stat-box"><div class="stat-label">最近一次更新时间</div><div class="stat-value" id="stat-updated" style="font-size:16px">—</div></div>
+  </div>
+
+  <section class="panel">
+    <div class="toolbar">
+      <div class="toolbar-meta" id="table-meta">—</div>
+      <button class="btn-pill" onclick="loadData()">刷新</button>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th style="width:190px">时间</th>
+            <th style="width:120px">状态码</th>
+            <th style="width:120px">耗时</th>
+            <th style="width:160px">请求大小</th>
+            <th style="width:160px">响应大小</th>
+            <th>摘要</th>
+          </tr>
+        </thead>
+        <tbody id="record-body">
+          <tr><td colspan="6" class="muted">暂无记录</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+</main>
+
+<div class="modal-overlay" id="detail-modal">
+  <div class="modal" style="width:min(1100px,96vw);max-width:1100px">
+    <div class="modal-title" id="detail-title">记录详情</div>
+    <div class="detail-grid">
+      <div class="detail-block"><div class="detail-title">请求头</div><pre class="detail-pre" id="detail-request-headers"></pre></div>
+      <div class="detail-block"><div class="detail-title">响应头</div><pre class="detail-pre" id="detail-response-headers"></pre></div>
+      <div class="detail-block"><div class="detail-title">请求体</div><pre class="detail-pre" id="detail-request-body"></pre></div>
+      <div class="detail-block"><div class="detail-title">AI 回复</div><pre class="detail-pre" id="detail-ai-content"></pre></div>
+    </div>
+    <div class="detail-block" style="margin-top:10px">
+      <div class="detail-title">Token</div>
+      <pre class="detail-pre" id="detail-token"></pre>
+    </div>
+    <div class="detail-block" style="margin-top:10px">
+      <div class="detail-title">思考内容</div>
+      <pre class="detail-pre" id="detail-reasoning"></pre>
+    </div>
+    <div class="detail-block" style="margin-top:10px">
+      <div class="detail-title">原始信息</div>
+      <pre class="detail-pre" id="detail-meta"></pre>
+    </div>
+    <div class="dialog-actions">
+      <button class="dialog-btn" onclick="closeModal()">关闭</button>
+    </div>
+  </div>
+</div>
+
+<script src="/static/js/i18n.js?v={{APP_VERSION}}"></script>
+<script src="/static/js/auth.js?v={{APP_VERSION}}"></script>
+<script src="/static/js/admin-header.js?v={{APP_VERSION}}"></script>
+<script src="/static/js/toast.js?v={{APP_VERSION}}"></script>
+<script src="/static/js/footer.js?v={{APP_VERSION}}"></script>
+<script>
+let records = [];
+let statusInfo = { recording: false, count: 0 };
+
+function esc(v) {
+  return String(v ?? '').replace(/[&<>"']/g, (c) => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[c]));
+}
+
+async function api(method, path) {
+  const key = await adminKey.get();
+  const res = await fetch(ADMIN_API + path, {
+    method,
+    headers: { Authorization: `Bearer ${key}` },
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.detail || data.error?.message || res.status);
+  return data;
+}
+
+function fmtTime(value) {
+  if (!value) return '—';
+  return new Date(value * 1000).toLocaleString();
+}
+
+function fmtBytes(value) {
+  const n = Number(value || 0);
+  if (!n) return '0 B';
+  if (n < 1024) return `${n} B`;
+  if (n < 1048576) return `${(n / 1024).toFixed(1)} KB`;
+  return `${(n / 1048576).toFixed(1)} MB`;
+}
+
+function renderState() {
+  document.getElementById('stat-status').textContent = statusInfo.recording ? '录制中' : '已停止';
+  document.getElementById('stat-status').className = `stat-value badge ${statusInfo.recording ? 'status-on' : 'status-off'}`;
+  document.getElementById('stat-count').textContent = String(statusInfo.count ?? 0);
+  document.getElementById('stat-updated').textContent = new Date().toLocaleString();
+  document.getElementById('table-meta').textContent = `共 ${records.length} 条记录`;
+  const body = document.getElementById('record-body');
+  if (!records.length) {
+    body.innerHTML = '<tr><td colspan="6" class="muted">暂无记录</td></tr>';
+    return;
+  }
+  body.innerHTML = records.map((item, index) => `
+    <tr onclick="openDetail(${index})" style="cursor:pointer">
+      <td class="mono">${esc(fmtTime(item.created_at))}</td>
+      <td>${esc(item.status_code ?? 0)}</td>
+      <td>${esc(item.duration_ms ?? 0)} ms</td>
+      <td>${esc(fmtBytes(item.request_body_size))}</td>
+      <td>${esc(fmtBytes(item.response_body_size))}</td>
+      <td>
+        <div class="mono">${esc(item.method || '')} ${esc(item.path || '')}</div>
+        <div class="muted mono" style="margin-top:4px">${esc(item.token || '')}</div>
+        <div class="muted" style="margin-top:4px">${esc(item.ai_content || '')}</div>
+      </td>
+    </tr>
+  `).join('');
+}
+
+async function loadData() {
+  const data = await api('GET', '/monitor/list');
+  statusInfo = { recording: !!data.recording, count: data.count ?? 0 };
+  records = data.records || [];
+  renderState();
+}
+
+async function loadDetail(id) {
+  return api('GET', `/monitor/${encodeURIComponent(id)}`);
+}
+
+async function startRecording() {
+  await api('POST', '/monitor/start');
+  showToast('已开始录制', 'success');
+  await loadData();
+}
+
+async function stopRecording() {
+  await api('POST', '/monitor/stop');
+  showToast('已停止录制', 'success');
+  await loadData();
+}
+
+async function clearRecords() {
+  if (!confirm('确定要清空所有监控记录吗？')) return;
+  await api('POST', '/monitor/clear');
+  showToast('已清空记录', 'success');
+  await loadData();
+}
+
+function openDetail(index) {
+  const item = records[index];
+  if (!item) return;
+  loadDetail(item.id).then((detail) => {
+    document.getElementById('detail-title').textContent = `${detail.method || ''} ${detail.path || ''}`;
+    document.getElementById('detail-request-headers').textContent = JSON.stringify(detail.request_headers || {}, null, 2);
+    document.getElementById('detail-response-headers').textContent = JSON.stringify(detail.response_headers || {}, null, 2);
+    document.getElementById('detail-request-body').textContent = typeof detail.request_body === 'string'
+      ? detail.request_body
+      : JSON.stringify(detail.request_body ?? {}, null, 2);
+    document.getElementById('detail-ai-content').textContent = String(detail.ai_content || '');
+    document.getElementById('detail-token').textContent = String(detail.token || '');
+    document.getElementById('detail-reasoning').textContent = String(detail.reasoning_content || '');
+    document.getElementById('detail-meta').textContent = JSON.stringify({
+      id: detail.id,
+      created_at: detail.created_at,
+      status_code: detail.response_status,
+      duration_ms: detail.duration_ms,
+    }, null, 2);
+    document.getElementById('detail-modal').classList.add('open');
+  }).catch((error) => showToast(error.message, 'error'));
+}
+
+function closeModal() {
+  document.getElementById('detail-modal').classList.remove('open');
+}
+
+document.getElementById('detail-modal').addEventListener('click', (event) => {
+  if (event.target.id === 'detail-modal') closeModal();
+});
+
+(async () => {
+  await renderAdminHeader?.();
+  await renderSiteFooter?.();
+  const key = await adminKey.get();
+  if (!key || !await verifyKey(ADMIN_API + '/verify', key).catch(() => false)) {
+    location.href = '/admin/login';
+    return;
+  }
+  await loadData();
+})();
+</script>
+</body>
+</html>

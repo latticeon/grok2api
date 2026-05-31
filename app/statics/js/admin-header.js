@@ -560,6 +560,18 @@ window.renderAdminHeader = async function renderAdminHeader() {
     };
   };
 
+  const ensureMonitorNav = () => {
+    const nav = mount.querySelector('.admin-nav');
+    if (!nav) return;
+    if (nav.querySelector('[data-nav="/admin/monitor"]')) return;
+    const link = document.createElement('a');
+    link.href = '/admin/monitor';
+    link.className = 'admin-nav-link';
+    link.dataset.nav = '/admin/monitor';
+    link.textContent = '请求监控';
+    nav.insertBefore(link, nav.children[nav.children.length - 1] || null);
+  };
+
   await loadVersion();
 
   try {
@@ -641,6 +653,7 @@ window.renderAdminHeader = async function renderAdminHeader() {
   mount.querySelectorAll('[data-nav]').forEach((link) => {
     link.classList.toggle('active', link.dataset.nav === active);
   });
+  ensureMonitorNav();
 
   const syncLanguageMenu = initLanguageMenu();
   applyHeaderI18n();

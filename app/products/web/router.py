@@ -62,6 +62,10 @@ async def admin_cache():
 async def admin_models():
     return _serve_html("admin/models.html")
 
+@router.get("/admin/monitor", include_in_schema=False)
+async def admin_monitor():
+    return _serve_html("admin/monitor.html")
+
 
 # --- WebUI ---
 @router.get("/webui", include_in_schema=False)
