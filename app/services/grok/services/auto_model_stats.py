@@ -12,6 +12,9 @@ from typing import Any
 from app.core.logger import logger
 from app.core.storage import get_storage
 
+RECENT_STATS_WINDOW_SECONDS = 60 * 60
+_MAX_EVENTS_PER_MODEL = 1000
+
 
 @dataclass(frozen=True)
 class AutoModelMetric:
@@ -24,7 +27,7 @@ class AutoModelMetric:
 
 class AutoModelStatsService:
     def __init__(self):
-        self._cache: dict[str, dict[str, dict[str, int]]] | None = None
+        self._cache: dict[str, dict[str, dict[str, Any]]] | None = None
         self._load_lock = asyncio.Lock()
 
     async def _ensure_loaded(self) -> None:
@@ -45,6 +48,45 @@ class AutoModelStatsService:
     def reset_cache(self) -> None:
         self._cache = None
 
+    def _cutoff(self, now: int | None = None) -> int:
+        return int(now or time.time()) - RECENT_STATS_WINDOW_SECONDS
+
+    def _normalize_events(self, stats: dict[str, Any], cutoff: int) -> list[dict[str, int | bool]]:
+        events = stats.get("events")
+        if not isinstance(events, list):
+            return []
+
+        normalized: list[dict[str, int | bool]] = []
+        for item in events:
+            if not isinstance(item, dict):
+                continue
+            ts = int(item.get("ts") or 0)
+            if ts < cutoff:
+                continue
+            normalized.append({"ts": ts, "success": bool(item.get("success"))})
+        return normalized[-_MAX_EVENTS_PER_MODEL:]
+
+    def _compact_stats(self, data: dict[str, Any], now: int | None = None) -> dict[str, Any]:
+        cutoff = self._cutoff(now)
+        compacted: dict[str, Any] = {}
+        for route_id, route_stats in (data or {}).items():
+            if not isinstance(route_stats, dict):
+                continue
+            compacted_route: dict[str, Any] = {}
+            for model_id, stats in route_stats.items():
+                if not isinstance(stats, dict):
+                    continue
+                events = self._normalize_events(stats, cutoff)
+                updated_at = int(stats.get("updated_at") or 0)
+                if events or updated_at >= cutoff:
+                    compacted_route[model_id] = {
+                        "events": events,
+                        "updated_at": updated_at,
+                    }
+            if compacted_route:
+                compacted[route_id] = compacted_route
+        return compacted
+
     async def record_attempt(self, route_id: str, model_id: str, success: bool) -> None:
         storage = get_storage()
         try:
@@ -52,14 +94,15 @@ class AutoModelStatsService:
                 data = await storage.load_auto_model_stats()
                 latest = data if isinstance(data, dict) else {}
                 now = int(time.time())
+                latest = self._compact_stats(latest, now)
                 route_stats = latest.setdefault(route_id, {})
                 model_stats = route_stats.setdefault(
                     model_id,
-                    {"attempts": 0, "successes": 0, "updated_at": now},
+                    {"events": [], "updated_at": now},
                 )
-                model_stats["attempts"] = int(model_stats.get("attempts") or 0) + 1
-                if success:
-                    model_stats["successes"] = int(model_stats.get("successes") or 0) + 1
+                events = self._normalize_events(model_stats, self._cutoff(now))
+                events.append({"ts": now, "success": bool(success)})
+                model_stats["events"] = events[-_MAX_EVENTS_PER_MODEL:]
                 model_stats["updated_at"] = now
                 await storage.save_auto_model_stats(latest)
                 self._cache = latest
@@ -74,10 +117,12 @@ class AutoModelStatsService:
         await self._reload()
         route_stats = (self._cache or {}).get(route_id, {})
         metrics: list[AutoModelMetric] = []
+        cutoff = self._cutoff()
         for model_id in configured_models:
             stats = route_stats.get(model_id, {})
-            attempts = int(stats.get("attempts") or 0)
-            successes = int(stats.get("successes") or 0)
+            events = self._normalize_events(stats, cutoff) if isinstance(stats, dict) else []
+            attempts = len(events)
+            successes = sum(1 for item in events if item["success"])
             success_rate = (successes / attempts) if attempts > 0 else 0.0
             metrics.append(
                 AutoModelMetric(

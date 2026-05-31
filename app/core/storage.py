@@ -700,6 +700,7 @@ class SQLStorage(BaseStorage):
                         attempts BIGINT NOT NULL,
                         successes BIGINT NOT NULL,
                         updated_at BIGINT NOT NULL,
+                        events TEXT,
                         PRIMARY KEY (route_id, model_id)
                     )
                 """)
@@ -755,6 +756,18 @@ class SQLStorage(BaseStorage):
                             )
                         except Exception:
                             pass
+
+                if self.dialect in ("postgres", "postgresql", "pgsql"):
+                    await conn.execute(
+                        text("ALTER TABLE auto_model_stats ADD COLUMN IF NOT EXISTS events TEXT")
+                    )
+                else:
+                    try:
+                        await conn.execute(
+                            text("ALTER TABLE auto_model_stats ADD COLUMN events TEXT")
+                        )
+                    except Exception:
+                        pass
 
                 # 尝试兼容旧表结构
                 try:
@@ -1141,18 +1154,27 @@ class SQLStorage(BaseStorage):
             async with self.async_session() as session:
                 res = await session.execute(
                     text(
-                        "SELECT route_id, model_id, attempts, successes, updated_at "
+                        "SELECT route_id, model_id, attempts, successes, updated_at, events "
                         "FROM auto_model_stats"
                     )
                 )
                 rows = res.fetchall()
                 payload: Dict[str, Any] = {}
-                for route_id, model_id, attempts, successes, updated_at in rows:
+                for route_id, model_id, attempts, successes, updated_at, events_json in rows:
                     route_stats = payload.setdefault(route_id, {})
+                    events = []
+                    if events_json:
+                        try:
+                            parsed_events = json_loads(events_json)
+                            if isinstance(parsed_events, list):
+                                events = parsed_events
+                        except Exception:
+                            events = []
                     route_stats[model_id] = {
                         "attempts": int(attempts or 0),
                         "successes": int(successes or 0),
                         "updated_at": int(updated_at or 0),
+                        "events": events,
                     }
                 return payload
         except Exception as e:
@@ -1177,17 +1199,25 @@ class SQLStorage(BaseStorage):
                             {
                                 "route_id": route_id,
                                 "model_id": model_id,
-                                "attempts": int(stats.get("attempts") or 0),
-                                "successes": int(stats.get("successes") or 0),
+                                "attempts": int(stats.get("attempts") or len(stats.get("events") or [])),
+                                "successes": int(
+                                    stats.get("successes")
+                                    or sum(
+                                        1
+                                        for item in (stats.get("events") or [])
+                                        if isinstance(item, dict) and item.get("success")
+                                    )
+                                ),
                                 "updated_at": int(stats.get("updated_at") or 0),
+                                "events": json_dumps(stats.get("events") or []),
                             }
                         )
                 if params:
                     await session.execute(
                         text(
                             "INSERT INTO auto_model_stats "
-                            "(route_id, model_id, attempts, successes, updated_at) "
-                            "VALUES (:route_id, :model_id, :attempts, :successes, :updated_at)"
+                            "(route_id, model_id, attempts, successes, updated_at, events) "
+                            "VALUES (:route_id, :model_id, :attempts, :successes, :updated_at, :events)"
                         ),
                         params,
                     )

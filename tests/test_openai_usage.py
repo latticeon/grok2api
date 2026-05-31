@@ -716,6 +716,7 @@ async def _noop_save_auto_model_stats(data):
 
 def test_auto_model_prefers_success_rate_order_and_records_stats(monkeypatch):
     get_auto_model_stats_service().reset_cache()
+    base_time = 1_000_000
     config_map = {
         "app.thinking": False,
         "app.stream": False,
@@ -740,9 +741,18 @@ def test_auto_model_prefers_success_rate_order_and_records_stats(monkeypatch):
 
     stats_store = {
         "grok-auto": {
-            "grok-4.20-auto": {"attempts": 10, "successes": 3, "updated_at": 1},
-            "grok-4.20-fast": {"attempts": 10, "successes": 8, "updated_at": 1},
-            "grok-3": {"attempts": 10, "successes": 5, "updated_at": 1},
+            "grok-4.20-auto": {
+                "updated_at": base_time - 120,
+                "events": [{"ts": base_time - 120, "success": False}],
+            },
+            "grok-4.20-fast": {
+                "updated_at": base_time - 100,
+                "events": [{"ts": base_time - 100, "success": True}],
+            },
+            "grok-3": {
+                "updated_at": base_time - 90,
+                "events": [{"ts": base_time - 90, "success": False}],
+            },
         }
     }
 
@@ -761,6 +771,7 @@ def test_auto_model_prefers_success_rate_order_and_records_stats(monkeypatch):
             acquire_lock=_dummy_async_lock,
         ),
     )
+    monkeypatch.setattr("app.services.grok.services.auto_model_stats.time.time", lambda: base_time)
 
     class FakeTokenManager:
         async def reload_if_stale(self):
@@ -837,8 +848,55 @@ def test_auto_model_prefers_success_rate_order_and_records_stats(monkeypatch):
         )
         assert result["choices"][0]["message"]["content"] == "Hello"
         assert calls == ["grok-4.20-fast"]
-        assert stats_store["grok-auto"]["grok-4.20-fast"]["attempts"] == 11
-        assert stats_store["grok-auto"]["grok-4.20-fast"]["successes"] == 9
+        fast_stats = stats_store["grok-auto"]["grok-4.20-fast"]
+        assert len(fast_stats["events"]) == 2
+        assert sum(1 for item in fast_stats["events"] if item["success"]) == 2
+
+    asyncio.run(_run())
+
+
+def test_auto_model_stats_ignores_events_older_than_one_hour(monkeypatch):
+    from app.services.grok.services.auto_model_stats import AutoModelStatsService
+
+    service = AutoModelStatsService()
+    base_time = 2_000_000
+    monkeypatch.setattr("app.services.grok.services.auto_model_stats.time.time", lambda: base_time)
+    stats_store = {
+        "grok-auto": {
+            "grok-4.20-auto": {
+                "updated_at": base_time - 10,
+                "events": [
+                    {"ts": base_time - 4000, "success": True},
+                    {"ts": base_time - 100, "success": False},
+                ],
+            },
+            "grok-4.20-fast": {
+                "updated_at": base_time - 20,
+                "events": [
+                    {"ts": base_time - 3599, "success": True},
+                    {"ts": base_time - 7200, "success": True},
+                ],
+            },
+        }
+    }
+
+    async def fake_load_auto_model_stats():
+        return stats_store
+
+    monkeypatch.setattr(
+        "app.services.grok.services.auto_model_stats.get_storage",
+        lambda: SimpleNamespace(load_auto_model_stats=fake_load_auto_model_stats),
+    )
+
+    async def _run():
+        metrics = await service.get_route_metrics(
+            "grok-auto",
+            ["grok-4.20-auto", "grok-4.20-fast"],
+        )
+        assert metrics[0].attempts == 1
+        assert metrics[0].successes == 0
+        assert metrics[1].attempts == 1
+        assert metrics[1].successes == 1
 
     asyncio.run(_run())
 

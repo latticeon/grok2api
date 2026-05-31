@@ -628,7 +628,10 @@ function buildAutoModelStatsNode(routeId) {
   const modeLabel = autoModelStats.prefer_success_rate
     ? t('config.autoModelOrderSuccess')
     : t('config.autoModelOrderConfig');
-  header.textContent = t('config.autoModelStatsTitle', { mode: modeLabel });
+  header.textContent = t('config.autoModelStatsTitle', {
+    mode: modeLabel,
+    window: t('config.autoModelStatsWindowHour')
+  });
   card.appendChild(header);
 
   const order = document.createElement('div');
