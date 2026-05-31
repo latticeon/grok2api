@@ -122,6 +122,7 @@
 <script>
 let models = [];
 let results = [];
+let running = false;
 
 function esc(v) {
   return String(v ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -186,21 +187,53 @@ async function runTests() {
   const chosen = selectedModels();
   if (!token) return showToast('请输入 Token', 'error');
   if (!chosen.length) return showToast('请选择至少一个模型', 'error');
+  if (running) return;
 
   const btn = document.getElementById('btn-run');
+  running = true;
   btn.disabled = true;
   btn.textContent = '测试中';
   results = [];
   renderResults();
   try {
-    const data = await api('POST', '/testing/models', { token, models: chosen, message });
-    results = data.results || [];
-    renderResults();
-    const s = data.summary || {};
-    showToast(`测试完成：成功 ${s.ok || 0}，失败 ${s.fail || 0}`, (s.fail || 0) ? 'error' : 'success');
+    let ok = 0;
+    let fail = 0;
+    for (const model of chosen) {
+      const meta = models.find((item) => item.id === model);
+      try {
+        const data = await api('POST', '/testing/token', { token, model, message });
+        const item = {
+          model,
+          name: meta?.name || model,
+          ...data,
+        };
+        results.push(item);
+        renderResults();
+        if (data.ok) ok += 1; else fail += 1;
+      } catch (e) {
+        const item = {
+          model,
+          name: meta?.name || model,
+          ok: false,
+          error: e.message,
+          response_body: '',
+          response_headers: {},
+          request_body: {},
+          request_headers: {},
+          ai_content: '',
+          duration_ms: 0,
+        };
+        results.push(item);
+        renderResults();
+        fail += 1;
+        showToast(`模型 ${model} 测试失败: ${e.message}`, 'error');
+      }
+    }
+    showToast(`测试完成：成功 ${ok}，失败 ${fail}`, fail ? 'error' : 'success');
   } catch (e) {
     showToast(`测试失败: ${e.message}`, 'error');
   } finally {
+    running = false;
     btn.disabled = false;
     btn.textContent = '测试';
   }
