@@ -23,6 +23,7 @@ from app.control.account.invalid_credentials import feedback_kind_for_error
 from app.control.model.auto import (
     is_auto_model,
     order_auto_model_targets,
+    record_auto_model_attempt,
     record_target_model_attempt,
     resolve_auto_model_target,
 )
