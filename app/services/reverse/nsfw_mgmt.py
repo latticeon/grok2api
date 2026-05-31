@@ -24,7 +24,23 @@ class NsfwMgmtReverse:
     """/auth_mgmt.AuthManagement/UpdateUserFeatureControls reverse interface."""
 
     @staticmethod
-    async def request(session: AsyncSession, token: str) -> GrpcStatus:
+    def build_payload(enabled: bool = True) -> bytes:
+        """Build gRPC-Web payload for always_show_nsfw_content."""
+        name = b"always_show_nsfw_content"
+        inner = b"\x0a" + bytes([len(name)]) + name
+        protobuf = (
+            b"\x0a\x02\x10"
+            + (b"\x01" if enabled else b"\x00")
+            + b"\x12"
+            + bytes([len(inner)])
+            + inner
+        )
+        return GrpcClient.encode_payload(protobuf)
+
+    @staticmethod
+    async def request(
+        session: AsyncSession, token: str, *, enabled: bool = True
+    ) -> GrpcStatus:
         """Enable NSFW feature control via gRPC-Web.
 
         Args:
@@ -50,10 +66,7 @@ class NsfwMgmtReverse:
             headers["Pragma"] = "no-cache"
 
             # Build payload
-            name = "always_show_nsfw_content".encode("utf-8")
-            inner = b"\x0a" + bytes([len(name)]) + name
-            protobuf = b"\x0a\x02\x10\x01\x12" + bytes([len(inner)]) + inner
-            payload = GrpcClient.encode_payload(protobuf)
+            payload = NsfwMgmtReverse.build_payload(enabled)
 
             # Curl Config
             timeout = get_config("nsfw.timeout")
