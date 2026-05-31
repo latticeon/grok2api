@@ -1,0 +1,250 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Grok2API - 模型测试</title>
+  <link rel="icon" href="/favicon.ico?v={{APP_VERSION}}">
+  <link href="https://cdn.jsdelivr.net/npm/geist@1.0.0/dist/fonts/geist-sans/style.css" rel="stylesheet">
+  <link href="/static/css/app.css?v={{APP_VERSION}}" rel="stylesheet">
+  <style>
+    body { background:#FAF9F5 }
+    .page-hd { display:flex; align-items:flex-start; justify-content:space-between; gap:16px; margin-bottom:20px }
+    .page-title { font-size:22px; font-weight:700; line-height:1.2 }
+    .page-sub { font-size:13px; color:var(--fg-muted); margin-top:5px }
+    .panel { background:#fff; border-radius:12px; padding:16px; margin-bottom:14px }
+    .form-grid { display:grid; grid-template-columns:minmax(260px, 1fr) minmax(260px, 1fr) auto; gap:10px; align-items:end }
+    .field { display:grid; gap:6px; min-width:0 }
+    .label { font-size:12px; color:#666; font-weight:600 }
+    .input { height:34px; border-radius:8px }
+    .message-input { min-height:82px; padding:9px 10px; resize:vertical }
+    .btn-main { height:34px; padding:0 16px; border-radius:999px; background:#111; color:#fff; font-weight:600 }
+    .btn-main:disabled { opacity:.45; pointer-events:none }
+    .model-tools { display:flex; gap:8px; flex-wrap:wrap; margin-bottom:10px }
+    .tool-btn { height:28px; padding:0 12px; border-radius:999px; background:#f5f5f5; color:#666; font-size:12px; font-weight:600 }
+    .model-grid { display:grid; grid-template-columns:repeat(auto-fill, minmax(260px, 1fr)); gap:8px }
+    .model-item { min-height:38px; display:flex; align-items:center; gap:8px; padding:8px 10px; border-radius:8px; background:#fbfbfb }
+    .model-name { min-width:0; display:grid; gap:2px }
+    .model-title { font-size:13px; color:#333; overflow:hidden; text-overflow:ellipsis; white-space:nowrap }
+    .model-id { font:11px ui-monospace,monospace; color:#999; overflow:hidden; text-overflow:ellipsis; white-space:nowrap }
+    .result-table { width:100%; border-collapse:collapse; background:#fff; border-radius:12px; overflow:hidden }
+    .result-table th, .result-table td { padding:12px 14px; font-size:13px; text-align:left }
+    .result-table th { color:#999; font-size:11px; font-weight:600 }
+    .result-table tr { cursor:pointer }
+    .result-table tbody tr:hover td { background:#fdfdfd }
+    .badge { display:inline-flex; align-items:center; height:20px; padding:0 8px; border-radius:999px; font-size:11px; font-weight:600 }
+    .badge-ok { color:#3e8f69; background:#f2f8f4 }
+    .badge-fail { color:#b66a63; background:#fbf3f2 }
+    .muted { color:#999 }
+    .modal { box-shadow:none }
+    .detail-grid { display:grid; grid-template-columns:1fr 1fr; gap:10px }
+    .detail-block { min-width:0; display:grid; gap:6px }
+    .detail-title { font-size:11px; color:#8f8f8f; font-weight:600 }
+    .detail-pre { max-height:220px; overflow:auto; padding:9px 10px; border-radius:10px; background:#f7f7f7; color:#333; font:11px/1.45 ui-monospace,monospace; white-space:pre-wrap; overflow-wrap:anywhere }
+    .dialog-actions { display:flex; justify-content:flex-end; gap:8px; margin-top:18px }
+    .dialog-btn { height:32px; padding:0 14px; border-radius:999px; background:#fafafa; color:#444; font-size:13px; font-weight:600 }
+    @media (max-width: 760px) {
+      .form-grid { grid-template-columns:1fr }
+      .detail-grid { grid-template-columns:1fr }
+    }
+  </style>
+</head>
+<body>
+<div id="admin-header" data-active="/admin/models"></div>
+<main class="admin-main">
+  <div class="page-hd">
+    <div>
+      <div class="page-title">模型测试</div>
+      <div class="page-sub">使用一个 Token 串行测试选中的聊天模型。</div>
+    </div>
+  </div>
+
+  <section class="panel">
+    <div class="form-grid">
+      <div class="field">
+        <label class="label" for="test-token">Token</label>
+        <input class="input" id="test-token" autocomplete="off">
+      </div>
+      <div class="field">
+        <label class="label" for="test-message">测试消息</label>
+        <textarea class="input message-input" id="test-message">你好</textarea>
+      </div>
+      <button class="btn-main" id="btn-run" onclick="runTests()">测试</button>
+    </div>
+  </section>
+
+  <section class="panel">
+    <div class="model-tools">
+      <button class="tool-btn" onclick="selectAllModels(true)">全选</button>
+      <button class="tool-btn" onclick="selectAllModels(false)">清空</button>
+      <span class="muted" id="model-count">0 个模型</span>
+    </div>
+    <div class="model-grid" id="model-grid"></div>
+  </section>
+
+  <table class="result-table">
+    <thead>
+      <tr>
+        <th style="width:32%">模型</th>
+        <th style="width:90px">状态</th>
+        <th style="width:100px">耗时</th>
+        <th>简单内容</th>
+      </tr>
+    </thead>
+    <tbody id="result-body">
+      <tr><td colspan="4" class="muted">暂无测试结果</td></tr>
+    </tbody>
+  </table>
+</main>
+
+<div class="modal-overlay" id="detail-modal">
+  <div class="modal" style="width:min(900px,96vw);max-width:900px">
+    <div class="modal-title" id="detail-title">测试详情</div>
+    <div class="detail-grid">
+      <div class="detail-block"><div class="detail-title">请求体</div><pre class="detail-pre" id="detail-request-body"></pre></div>
+      <div class="detail-block"><div class="detail-title">请求头</div><pre class="detail-pre" id="detail-request-headers"></pre></div>
+      <div class="detail-block"><div class="detail-title">响应体</div><pre class="detail-pre" id="detail-response-body"></pre></div>
+      <div class="detail-block"><div class="detail-title">响应头</div><pre class="detail-pre" id="detail-response-headers"></pre></div>
+      <div class="detail-block"><div class="detail-title">AI 返回内容</div><pre class="detail-pre" id="detail-ai-content"></pre></div>
+      <div class="detail-block"><div class="detail-title">耗时</div><pre class="detail-pre" id="detail-duration"></pre></div>
+    </div>
+    <div class="dialog-actions">
+      <button onclick="closeModal('detail-modal')" class="dialog-btn">关闭</button>
+    </div>
+  </div>
+</div>
+
+<script src="/static/js/i18n.js?v={{APP_VERSION}}"></script>
+<script src="/static/js/auth.js?v={{APP_VERSION}}"></script>
+<script src="/static/js/admin-header.js?v={{APP_VERSION}}"></script>
+<script src="/static/js/toast.js?v={{APP_VERSION}}"></script>
+<script src="/static/js/footer.js?v={{APP_VERSION}}"></script>
+<script>
+let models = [];
+let results = [];
+
+function esc(v) {
+  return String(v ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+async function api(method, path, body) {
+  const key = await adminKey.get();
+  const r = await fetch(ADMIN_API + path, {
+    method,
+    headers: { ...(body != null && { 'Content-Type': 'application/json' }), Authorization: `Bearer ${key}` },
+    ...(body != null && { body: JSON.stringify(body) }),
+  });
+  if (!r.ok) { const d = await r.json().catch(() => ({})); throw new Error(d.detail || r.status); }
+  return r.json();
+}
+
+function renderModels() {
+  document.getElementById('model-count').textContent = `${models.length} 个模型`;
+  document.getElementById('model-grid').innerHTML = models.map((m, index) => `
+    <label class="model-item">
+      <input type="checkbox" class="model-cb" value="${esc(m.id)}" ${index < 6 ? 'checked' : ''}>
+      <span class="model-name">
+        <span class="model-title">${esc(m.name || m.id)}</span>
+        <span class="model-id">${esc(m.id)}</span>
+      </span>
+    </label>
+  `).join('');
+}
+
+function selectAllModels(checked) {
+  document.querySelectorAll('.model-cb').forEach(cb => cb.checked = checked);
+}
+
+function selectedModels() {
+  return [...document.querySelectorAll('.model-cb:checked')].map(cb => cb.value);
+}
+
+function simpleText(item) {
+  const text = String(item.ai_content || item.error || '');
+  return text.length > 120 ? text.slice(0, 120) + '...' : text;
+}
+
+function renderResults() {
+  const body = document.getElementById('result-body');
+  if (!results.length) {
+    body.innerHTML = '<tr><td colspan="4" class="muted">暂无测试结果</td></tr>';
+    return;
+  }
+  body.innerHTML = results.map((item, index) => `
+    <tr onclick="openDetail(${index})">
+      <td><div class="model-title">${esc(item.name || item.model)}</div><div class="model-id">${esc(item.model)}</div></td>
+      <td><span class="badge ${item.ok ? 'badge-ok' : 'badge-fail'}">${item.ok ? '成功' : '失败'}</span></td>
+      <td class="muted">${esc(item.duration_ms ?? 0)} ms</td>
+      <td class="muted">${esc(simpleText(item))}</td>
+    </tr>
+  `).join('');
+}
+
+async function runTests() {
+  const token = document.getElementById('test-token').value.trim();
+  const message = document.getElementById('test-message').value;
+  const chosen = selectedModels();
+  if (!token) return showToast('请输入 Token', 'error');
+  if (!chosen.length) return showToast('请选择至少一个模型', 'error');
+
+  const btn = document.getElementById('btn-run');
+  btn.disabled = true;
+  btn.textContent = '测试中';
+  results = [];
+  renderResults();
+  try {
+    const data = await api('POST', '/testing/models', { token, models: chosen, message });
+    results = data.results || [];
+    renderResults();
+    const s = data.summary || {};
+    showToast(`测试完成：成功 ${s.ok || 0}，失败 ${s.fail || 0}`, (s.fail || 0) ? 'error' : 'success');
+  } catch (e) {
+    showToast(`测试失败: ${e.message}`, 'error');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = '测试';
+  }
+}
+
+function openDetail(index) {
+  const item = results[index];
+  if (!item) return;
+  document.getElementById('detail-title').textContent = `测试详情 - ${item.model}`;
+  document.getElementById('detail-request-body').textContent = JSON.stringify(item.request_body, null, 2);
+  document.getElementById('detail-request-headers').textContent = JSON.stringify(item.request_headers, null, 2);
+  document.getElementById('detail-response-body').textContent = String(item.response_body || '');
+  document.getElementById('detail-response-headers').textContent = JSON.stringify(item.response_headers, null, 2);
+  document.getElementById('detail-ai-content').textContent = String(item.ai_content || '');
+  document.getElementById('detail-duration').textContent = `${item.duration_ms ?? 0} ms`;
+  openModal('detail-modal');
+}
+
+function openModal(id) { document.getElementById(id).classList.add('open'); }
+function closeModal(id) { document.getElementById(id).classList.remove('open'); }
+document.querySelectorAll('.modal-overlay').forEach(el => el.addEventListener('click', e => {
+  if (e.target === el) el.classList.remove('open');
+}));
+
+(async () => {
+  try {
+    await renderAdminHeader?.();
+    await renderSiteFooter?.();
+    const key = await adminKey.get();
+    if (!key || !await verifyKey(ADMIN_API + '/verify', key).catch(() => false)) {
+      return location.href = '/admin/login';
+    }
+    const data = await api('GET', '/testing/chat-models');
+    models = data.models || [];
+    renderModels();
+  } catch (e) {
+    showToast(`页面初始化失败: ${e.message}`, 'error');
+  }
+})();
+
+async function verifyKey(url, key) {
+  const res = await fetch(url, { headers: { Authorization: `Bearer ${key}` } });
+  return res.ok;
+}
+</script>
+</body>
+</html>

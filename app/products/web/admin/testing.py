@@ -32,6 +32,12 @@ class TokenTestRequest(BaseModel):
     message: str = "你好"
 
 
+class ModelBatchTestRequest(BaseModel):
+    token: str
+    models: list[str]
+    message: str = "你好"
+
+
 def _headers_to_dict(headers: Any) -> dict[str, str]:
     if headers is None:
         return {}
@@ -167,6 +173,43 @@ async def test_token(req: TokenTestRequest):
         model=req.model,
         message=req.message,
     )
+
+
+@router.post("/models")
+async def test_models(req: ModelBatchTestRequest):
+    token = str(req.token or "").strip()
+    if not token:
+        raise ValidationError("Token 不能为空", param="token")
+    models = [str(model).strip() for model in req.models if str(model).strip()]
+    if not models:
+        raise ValidationError("请选择至少一个模型", param="models")
+
+    results: list[dict[str, Any]] = []
+    ok = fail = 0
+
+    for model in models:
+        result = await run_single_token_chat_test(
+            token=token,
+            model=model,
+            message=req.message,
+        )
+        spec = model_registry.get(model)
+        item = {
+            "model": model,
+            "name": spec.public_name if spec else model,
+            **result,
+        }
+        if result.get("ok"):
+            ok += 1
+        else:
+            fail += 1
+        results.append(item)
+
+    return {
+        "status": "success",
+        "summary": {"total": len(results), "ok": ok, "fail": fail},
+        "results": results,
+    }
 
 
 __all__ = ["router", "run_single_token_chat_test"]
