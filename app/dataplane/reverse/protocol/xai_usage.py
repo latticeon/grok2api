@@ -200,27 +200,21 @@ async def fetch_mode_quota(token: str, mode_id: int) -> object | None:
 
 def is_invalid_credentials_body(body: str) -> bool:
     """Return whether *body* contains a Grok invalid/blocked account marker."""
-    text = str(body or "").lower()
-    return (
-        "invalid-credentials" in text
-        or "bad-credentials" in text
-        or "failed to look up session id" in text
-        or "blocked-user" in text
-        or "email-domain-rejected" in text
-        or "session not found" in text
-        or "account suspended" in text
-        or "token revoked" in text
-        or "token expired" in text
-    )
+    from app.control.account.rules import body_has_invalid_account_keyword
+
+    return body_has_invalid_account_keyword(body)
 
 
 def is_invalid_credentials_error(exc: BaseException) -> bool:
     """Return whether *exc* indicates the account is invalid or blocked."""
     if not isinstance(exc, UpstreamError):
         return False
-    if exc.status not in (400, 401, 403):
-        return False
-    return is_invalid_credentials_body(str(exc.details.get("body", "") or ""))
+    from app.control.account.rules import response_is_invalid_account
+
+    return response_is_invalid_account(
+        exc.status,
+        str(exc.details.get("body", "") or ""),
+    )
 
 
 def _proxy_feedback_kind_for_error(

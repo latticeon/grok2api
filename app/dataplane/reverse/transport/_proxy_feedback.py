@@ -13,13 +13,17 @@ else → TRANSPORT_ERROR
 """
 
 from app.platform.errors import UpstreamError
+from app.control.account.rules import response_is_invalid_account
 from app.control.proxy.models import ProxyFeedback, ProxyFeedbackKind
 
 
 def upstream_feedback(exc: UpstreamError) -> ProxyFeedback:
     """Return a ``ProxyFeedback`` for an ``UpstreamError`` response."""
     status = exc.status or 0
-    if status == 401:
+    body = str(exc.details.get("body", "") or "")
+    if response_is_invalid_account(status, body):
+        kind = ProxyFeedbackKind.UNAUTHORIZED
+    elif status == 401:
         kind = ProxyFeedbackKind.UNAUTHORIZED
     elif status == 403:
         kind = ProxyFeedbackKind.CHALLENGE

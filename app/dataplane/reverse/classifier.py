@@ -5,7 +5,7 @@ Maps upstream HTTP status codes and response bodies to a ResultCategory.
 
 from typing import Any
 
-from app.dataplane.reverse.protocol.xai_usage import is_invalid_credentials_body
+from app.control.account.rules import response_is_invalid_account
 
 from .types import ResultCategory
 
@@ -30,13 +30,10 @@ def classify_result(
     if status_code == 401:
         return ResultCategory.AUTH_FAILURE
 
-    if status_code == 400 and is_invalid_credentials_body(body):
+    if response_is_invalid_account(status_code, body):
         return ResultCategory.AUTH_FAILURE
 
     if status_code == 403:
-        # Known blocked/invalid account markers take precedence.
-        if is_invalid_credentials_body(body):
-            return ResultCategory.AUTH_FAILURE
         # Check if the body indicates a Cloudflare challenge.
         if body and ("cf-challenge" in body.lower() or "cloudflare" in body.lower()):
             return ResultCategory.FORBIDDEN

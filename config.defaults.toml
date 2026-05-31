@@ -44,6 +44,12 @@ show_search_sources = false
 # 全局附加指令
 custom_instruction = ""
 
+[account]
+# 判定账号失效/封禁的关键词，支持换行或逗号分隔。
+invalid_keywords = "invalid-credentials\nbad-credentials\nfailed to look up session id\nblocked-user\nemail-domain-rejected\nsession not found\naccount suspended\ntoken revoked\ntoken expired"
+# 判定账号失效/封禁的状态码，支持逗号分隔。
+invalid_status_codes = "401,403"
+
 # 自动模型集：一行一个真实聊天模型名。
 # 请求 grok-auto / grok-auto-lite 时会按这里的顺序尝试；开启 success_rate_routing 后按近一小时成功率优先。
 [auto_models]

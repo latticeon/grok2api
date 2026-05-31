@@ -8,6 +8,7 @@ from app.platform.runtime.clock import now_ms
 
 from .commands import AccountPatch
 from .enums import AccountStatus, FeedbackKind
+from .rules import response_is_invalid_account
 
 if TYPE_CHECKING:
     from .repository import AccountRepository
@@ -21,9 +22,11 @@ async def mark_account_invalid_credentials(
     source: str,
 ) -> bool:
     """Mark *token* as invalid when *exc* matches Grok invalid credentials."""
-    from app.dataplane.reverse.protocol.xai_usage import is_invalid_credentials_error
-
-    if not is_invalid_credentials_error(exc):
+    status = getattr(exc, "status", None)
+    body = ""
+    if isinstance(exc, UpstreamError):
+        body = str(exc.details.get("body", "") or "")
+    if not response_is_invalid_account(status, body):
         return False
 
     record = next(iter(await repo.get_accounts([token])), None)
@@ -52,7 +55,7 @@ async def mark_account_invalid_credentials(
         source,
         token[:10],
         AccountStatus.EXPIRED,
-        getattr(exc, "status", None) if isinstance(exc, UpstreamError) else None,
+        status,
     )
     return True
 
@@ -61,15 +64,12 @@ def feedback_kind_for_error(exc: BaseException | None) -> FeedbackKind:
     """Map an upstream exception to the appropriate account feedback kind."""
     if exc is None:
         return FeedbackKind.SERVER_ERROR
-    # Check for known blocked/invalid body markers first — these override
-    # the generic status-code mapping so that e.g. a 403 with "blocked-user"
-    # body is treated as an account-level credential failure, not a generic
-    # FORBIDDEN that only lowers health.
-    from app.dataplane.reverse.protocol.xai_usage import is_invalid_credentials_error
-
-    if is_invalid_credentials_error(exc):
-        return FeedbackKind.UNAUTHORIZED
     status = getattr(exc, "status", 0)
+    body = ""
+    if isinstance(exc, UpstreamError):
+        body = str(exc.details.get("body", "") or "")
+    if response_is_invalid_account(status, body):
+        return FeedbackKind.UNAUTHORIZED
     if status == 429:
         return FeedbackKind.RATE_LIMITED
     if status == 401:

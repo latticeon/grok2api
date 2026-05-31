@@ -200,15 +200,18 @@ def _resolve_model_names(model: str) -> tuple[list[str], bool]:
     return order_auto_model_targets(models, by_success_rate=by_success_rate), by_success_rate
 
 
-def _raise_if_empty_response(adapter: StreamAdapter, *, model: str) -> None:
-    has_content = bool(
+def _is_empty_stream_result(adapter: StreamAdapter) -> bool:
+    return not bool(
         adapter.text_buf
         or adapter.thinking_buf
         or adapter.image_urls
         or adapter.search_sources_list()
         or adapter.annotations_list()
     )
-    if not has_content:
+
+
+def _raise_if_empty_response(adapter: StreamAdapter, *, model: str) -> None:
+    if _is_empty_stream_result(adapter):
         raise UpstreamError(
             f"Upstream returned an empty response for model {model}",
             status=502,

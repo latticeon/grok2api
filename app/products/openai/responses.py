@@ -470,6 +470,12 @@ async def create(
                                     attempt + 1, max_retries + 1, model)
                     else:
                         # Normal text path
+                        if not (text_buf or think_buf or adapter.image_urls or collected_annotations or adapter.search_sources_list()):
+                            raise UpstreamError(
+                                f"Upstream returned an empty response for model {model}",
+                                status=502,
+                                body="empty_response",
+                            )
                         msg_idx = 1 if reasoning_started else 0
                         for url, img_id in adapter.image_urls:
                             img_text = await _resolve_image(token, url, img_id)
@@ -694,6 +700,12 @@ async def create(
         full_text += references
 
     full_think = ("".join(adapter.thinking_buf) or "") if emit_think else ""
+    if not (full_text.strip() or full_think.strip() or adapter.image_urls or adapter.annotations_list() or adapter.search_sources_list()):
+        raise UpstreamError(
+            f"Upstream returned an empty response for model {model}",
+            status=502,
+            body="empty_response",
+        )
 
     # Check for tool calls in the accumulated text
     if tool_names:

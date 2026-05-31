@@ -495,6 +495,14 @@ const SCHEMA_DEF = [
         ]
       },
       {
+        title: '账号失效判定',
+        section: 'account',
+        fields: [
+          { key: 'invalid_keywords', label: '封禁关键词', type: 'textarea', desc: '上游响应体命中任一关键词时，将账号判定为失效/封禁。支持一行一个或逗号分隔。' },
+          { key: 'invalid_status_codes', label: '失效状态码', type: 'text', desc: '上游响应状态码命中时，将账号判定为失效/封禁。多个值请使用英文逗号分隔。' },
+        ]
+      },
+      {
         title: '媒体返回格式', titleKey: 'config.schema.groups.mediaFormat',
         section: 'features',
         fields: [
