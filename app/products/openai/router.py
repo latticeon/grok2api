@@ -61,7 +61,7 @@ def _model_available_for_pools(spec: ModelSpec, pools: frozenset[str]) -> bool:
 # ---------------------------------------------------------------------------
 
 
-@router.get("/models", tags=[_TAG_MODELS], dependencies=[Depends(verify_api_key)])
+@router.get("/models", tags=[_TAG_MODELS])
 async def list_models(request: Request):
     import time
 
@@ -96,7 +96,7 @@ async def auto_model_stats_endpoint():
 
 
 @router.get(
-    "/models/{model_id}", tags=[_TAG_MODELS], dependencies=[Depends(verify_api_key)]
+    "/models/{model_id}", tags=[_TAG_MODELS]
 )
 async def get_model_endpoint(model_id: str, request: Request):
     import time
