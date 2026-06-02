@@ -48,6 +48,19 @@ def _headers_to_dict(headers: Any) -> dict[str, str]:
         return {}
 
 
+def _empty_body_note(headers: dict[str, str]) -> str:
+    if not headers:
+        return ""
+    normalized = {str(k).lower(): str(v) for k, v in headers.items()}
+    return (
+        "[empty response body]\n"
+        f"content-type: {normalized.get('content-type', '')}\n"
+        f"content-encoding: {normalized.get('content-encoding', '')}\n"
+        f"server: {normalized.get('server', '')}\n"
+        f"cf-ray: {normalized.get('cf-ray', '')}"
+    )
+
+
 def _chat_content(adapter: StreamAdapter) -> str:
     parts = list(adapter.text_buf)
     if adapter.image_urls:
@@ -94,6 +107,18 @@ async def _response_body_text(response: Any, *, limit: int = 4000) -> str:
             reader = getattr(response, "aread", None)
             if callable(reader):
                 body = await reader()
+        except Exception:
+            body = b""
+    if not body:
+        try:
+            chunks: list[bytes] = []
+            async for chunk in response.aiter_content():
+                if not chunk:
+                    continue
+                chunks.append(chunk)
+                if sum(len(item) for item in chunks) >= limit:
+                    break
+            body = b"".join(chunks)
         except Exception:
             body = b""
     if not body:
@@ -151,6 +176,8 @@ async def run_single_token_chat_test(
             response_headers = _headers_to_dict(response.headers)
             if response.status_code != 200:
                 body = await _response_body_text(response)
+                if not body:
+                    body = _empty_body_note(response_headers)
                 raw_lines.append(body)
                 raise UpstreamError(
                     f"Chat upstream returned {response.status_code}",
