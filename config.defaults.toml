@@ -43,6 +43,8 @@ enable_nsfw = true
 show_search_sources = false
 # 全局附加指令
 custom_instruction = ""
+# Grok 设备 ID 池（支持逗号、分号或换行分隔；每次请求随机取用一个）
+grok_device_id = ""
 
 [account]
 # 判定账号失效/封禁的关键词，支持换行或逗号分隔。
@@ -103,8 +105,6 @@ skip_ssl_verify = false
 mode = "none"
 # 手动模式：Cloudflare Cookie 字符串
 cf_cookies = ""
-# Grok 设备 ID 池（支持逗号、分号或换行分隔；每次请求随机取用一个）
-grok_device_id = ""
 # User-Agent（需与 cf_cookies 匹配）
 user_agent = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36"
 # curl_cffi 浏览器指纹

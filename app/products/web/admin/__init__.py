@@ -75,10 +75,12 @@ def _sanitize_text(value: Any, *, remove_all_spaces: bool = False) -> str:
 
 def _sanitize_proxy_config(payload: dict[str, Any]) -> dict[str, Any]:
     proxy = payload.get("proxy")
-    if not isinstance(proxy, dict):
+    features = payload.get("features")
+    if not isinstance(proxy, dict) and not isinstance(features, dict):
         return dict(payload)
 
-    sanitized = dict(proxy)
+    sanitized = dict(proxy) if isinstance(proxy, dict) else None
+    sanitized_features = dict(features) if isinstance(features, dict) else None
     changed = False
 
     def _sanitize_fields(target: dict[str, Any]) -> tuple[dict[str, Any], bool]:
@@ -99,21 +101,32 @@ def _sanitize_proxy_config(payload: dict[str, Any]) -> dict[str, Any]:
                 local_changed = True
         return normalized, local_changed
 
-    sanitized, changed = _sanitize_fields(sanitized)
+    if sanitized is not None:
+        sanitized, changed = _sanitize_fields(sanitized)
 
-    clearance = sanitized.get("clearance")
+    clearance = sanitized.get("clearance") if sanitized is not None else None
     if isinstance(clearance, dict):
         sanitized_clearance, clearance_changed = _sanitize_fields(clearance)
         if clearance_changed:
             sanitized["clearance"] = sanitized_clearance
             changed = True
 
+    if sanitized_features is not None and "grok_device_id" in sanitized_features:
+        raw = sanitized_features["grok_device_id"]
+        val = _sanitize_text(raw, remove_all_spaces=False)
+        if val != raw:
+            sanitized_features["grok_device_id"] = val
+            changed = True
+
     if not changed:
         return dict(payload)
 
-    logger.warning("admin config payload sanitized before save: section=proxy")
+    logger.warning("admin config payload sanitized before save")
     result = dict(payload)
-    result["proxy"] = sanitized
+    if sanitized is not None:
+        result["proxy"] = sanitized
+    if sanitized_features is not None:
+        result["features"] = sanitized_features
     return result
 
 

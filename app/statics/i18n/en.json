@@ -482,6 +482,10 @@
           "label": "On-Demand Refresh Interval (s)",
           "desc": "Throttle window for request-triggered refreshes such as 429 handling. Repeated triggers within the interval are coalesced into a single refresh."
         },
+        "grokDeviceId": {
+          "label": "Grok Device ID Pool",
+          "desc": "Required runtime setting. Multiple real browser grok_device_id values are supported, separated by newlines, commas, or semicolons. One is picked randomly for each request."
+        },
         "imageCacheMaxMb": {
           "label": "Image Cache Limit (MB)",
           "desc": "0 disables the limit. Applies only to locally proxied media files. When the limit is exceeded, the oldest files are removed until usage falls back to 60% of the limit."
@@ -549,10 +553,6 @@
         "cfCookies": {
           "label": "Cloudflare Cookies",
           "desc": "Full cookie string issued by Cloudflare, including fields such as cf_clearance."
-        },
-        "grokDeviceId": {
-          "label": "Grok Device ID Pool",
-          "desc": "Multiple real browser grok_device_id values are supported, separated by newlines, commas, or semicolons. One is picked randomly for each request."
         },
         "flaresolverrUrl": {
           "label": "FlareSolverr URL",

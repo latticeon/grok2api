@@ -482,6 +482,10 @@
           "label": "按需刷新间隔（秒）",
           "desc": "请求链路触发刷新（例如收到 429）时的节流间隔。N 秒内重复触发只执行一次，避免批量打爆配额接口。"
         },
+        "grokDeviceId": {
+          "label": "Grok Device ID 池",
+          "desc": "必填运行参数。可填写多个浏览器真实 grok_device_id，支持换行、逗号或分号分隔；每次请求随机取用一个。"
+        },
         "imageCacheMaxMb": {
           "label": "图片缓存上限（MB）",
           "desc": "0 表示不限制。仅对本地代理落盘生效；超限后按最旧文件优先清理，并一次性回落到上限的 60%。"
@@ -549,10 +553,6 @@
         "cfCookies": {
           "label": "Cloudflare Cookies",
           "desc": "Cloudflare 下发的完整 Cookie 字符串，应包含 cf_clearance 等字段。"
-        },
-        "grokDeviceId": {
-          "label": "Grok Device ID 池",
-          "desc": "可填写多个浏览器真实 grok_device_id，支持换行、逗号或分号分隔；每次请求随机取用一个。"
         },
         "flaresolverrUrl": {
           "label": "FlareSolverr URL",

@@ -48,6 +48,7 @@ def resolve_clearance_config(cfg: Any | None = None) -> ClearanceConfig:
         ),
         grok_device_id=first_config_str(
             cfg,
+            "features.grok_device_id",
             "proxy.grok_device_id",
             "proxy.clearance.grok_device_id",
         ),

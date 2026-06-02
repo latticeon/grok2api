@@ -482,6 +482,7 @@ const SCHEMA_DEF = [
           { key: 'enable_nsfw', label: '允许 NSFW 生成', labelKey: 'config.schema.fields.enableNsfw.label', type: 'bool', desc: '允许图像生成接口绕过 NSFW 内容过滤。', descKey: 'config.schema.fields.enableNsfw.desc' },
           { key: 'show_search_sources', label: '正文追加信源', labelKey: 'config.schema.fields.showSearchSources.label', type: 'bool', desc: '搜索信源始终以 search_sources 字段输出。此选项控制是否同时在正文末尾追加 ## Sources 段落（兼容文本解析客户端）。', descKey: 'config.schema.fields.showSearchSources.desc' },
           { key: 'custom_instruction', label: '全局附加指令', labelKey: 'config.schema.fields.customInstruction.label', type: 'textarea', desc: '为每次请求注入统一的 system 消息，用于约束模型行为或固定角色设定。', descKey: 'config.schema.fields.customInstruction.desc' },
+          { key: 'grok_device_id', label: 'Grok Device ID 池', labelKey: 'config.schema.fields.grokDeviceId.label', type: 'textarea', wide: true, desc: '必填运行参数。可填写多个浏览器真实 grok_device_id，支持换行、逗号或分号分隔；每次请求随机取用一个。', descKey: 'config.schema.fields.grokDeviceId.desc' },
         ]
       },
       {
@@ -696,16 +697,6 @@ const SCHEMA_DEF = [
             desc: 'Cloudflare 下发的完整 Cookie 字符串，应包含 cf_clearance 等字段。',
             descKey: 'config.schema.fields.cfCookies.desc',
             showIf: { path: 'proxy.clearance.mode', values: ['manual'] },
-          },
-          {
-            key: 'grok_device_id',
-            label: 'Grok Device ID 池',
-            labelKey: 'config.schema.fields.grokDeviceId.label',
-            type: 'textarea',
-            wide: true,
-            desc: '可填写多个浏览器真实 grok_device_id，支持换行、逗号或分号分隔；每次请求随机取用一个。',
-            descKey: 'config.schema.fields.grokDeviceId.desc',
-            showIf: { path: 'proxy.clearance.mode', values: ['manual', 'flaresolverr'] },
           },
           {
             key: 'flaresolverr_url',
