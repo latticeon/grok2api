@@ -57,6 +57,24 @@ def _chat_content(adapter: StreamAdapter) -> str:
     return "".join(parts)
 
 
+async def _response_body_text(response: Any, *, limit: int = 4000) -> str:
+    """Best-effort body reader for curl_cffi streaming responses."""
+    try:
+        body = response.content or b""
+    except Exception:
+        body = b""
+    if not body:
+        try:
+            reader = getattr(response, "aread", None)
+            if callable(reader):
+                body = await reader()
+        except Exception:
+            body = b""
+    if not body:
+        return ""
+    return body.decode("utf-8", "replace")[:limit]
+
+
 async def run_single_token_chat_test(
     *,
     token: str,
@@ -102,7 +120,7 @@ async def run_single_token_chat_test(
             status_code = int(response.status_code)
             response_headers = _headers_to_dict(response.headers)
             if response.status_code != 200:
-                body = response.content.decode("utf-8", "replace")[:4000]
+                body = await _response_body_text(response)
                 raw_lines.append(body)
                 raise UpstreamError(
                     f"Chat upstream returned {response.status_code}",
