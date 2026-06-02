@@ -24,6 +24,7 @@ from app.platform.logging.logger import logger
 from app.platform.config.snapshot import get_config
 from app.control.proxy.models import ProxyFeedback, ProxyFeedbackKind, ProxyScope, RequestKind
 from app.dataplane.proxy import get_proxy_runtime
+from app.dataplane.proxy.adapters.device import ensure_device_id
 from app.dataplane.reverse.transport._proxy_feedback import upstream_feedback
 from app.dataplane.proxy.adapters.headers import build_ws_headers
 from app.dataplane.reverse.protocol.xai_image import (
@@ -307,6 +308,7 @@ async def stream_images(
         # ── Establish connection ──────────────────────────────────────────────
         proxy   = await get_proxy_runtime()
         lease   = await proxy.acquire(scope=ProxyScope.APP, kind=RequestKind.WEBSOCKET)
+        await ensure_device_id(token, lease=lease)
         headers = build_ws_headers(token=token, lease=lease)
 
         try:

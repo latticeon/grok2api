@@ -9,6 +9,7 @@ from typing import AsyncGenerator
 from app.platform.logging.logger import logger
 from app.platform.errors import UpstreamError
 from app.control.proxy.models import ProxyLease
+from app.dataplane.proxy.adapters.device import ensure_device_id
 from app.dataplane.proxy.adapters.headers import build_http_headers
 from app.dataplane.proxy.adapters.session import ResettableSession, build_session_kwargs
 
@@ -28,6 +29,7 @@ async def post_stream(
 
     Raises ``UpstreamError`` on non-200 status.
     """
+    await ensure_device_id(token, lease=lease)
     headers = build_http_headers(
         token,
         content_type=content_type,
@@ -101,6 +103,7 @@ async def post_json(
     Pass *session* to reuse an existing connection (avoids a new TLS handshake).
     When *session* is ``None`` a fresh session is created and closed automatically.
     """
+    await ensure_device_id(token, lease=lease)
     headers = build_http_headers(
         token, content_type=content_type, origin=origin, referer=referer, lease=lease
     )
@@ -140,6 +143,7 @@ async def get_json(
     referer: str = "https://grok.com/",
 ) -> dict:
     """GET *url* and return parsed JSON response body."""
+    await ensure_device_id(token, lease=lease)
     headers = build_http_headers(
         token,
         content_type="application/json",
@@ -187,6 +191,7 @@ async def delete_json(
     referer: str = "https://grok.com/",
 ) -> dict:
     """DELETE *url* and return parsed JSON response body (may be empty → {})."""
+    await ensure_device_id(token, lease=lease)
     headers = build_http_headers(
         token,
         content_type="application/json",
@@ -239,6 +244,7 @@ async def get_bytes_stream(
 
     Raises ``UpstreamError`` on non-200 status.
     """
+    await ensure_device_id(token, lease=lease)
     headers = build_http_headers(
         token,
         content_type=None,

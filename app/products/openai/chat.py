@@ -31,6 +31,7 @@ from app.control.model.registry import resolve as resolve_model
 from app.control.model.enums import ModeId
 from app.control.account.enums import FeedbackKind
 from app.dataplane.account.selector import current_strategy
+from app.dataplane.proxy.adapters.device import ensure_device_id
 from app.dataplane.proxy.adapters.headers import build_http_headers
 from app.dataplane.proxy import get_proxy_runtime
 from app.dataplane.proxy.adapters.session import (
@@ -424,6 +425,7 @@ async def _stream_chat(
     """Yield raw SSE lines from the Grok app-chat endpoint."""
     proxy = await get_proxy_runtime()
     lease = await proxy.acquire()
+    await ensure_device_id(token, lease=lease)
     attachments = await _prepare_file_attachments(token, files)
 
     payload = build_chat_payload(

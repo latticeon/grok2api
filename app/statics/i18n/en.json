@@ -486,6 +486,10 @@
           "label": "Grok Device ID Pool",
           "desc": "Required runtime setting. Multiple real browser grok_device_id values are supported, separated by newlines, commas, or semicolons. One is picked randomly for each request."
         },
+        "grokDeviceIdAuto": {
+          "label": "Auto Fetch Device ID",
+          "desc": "When the Grok Device ID pool is empty, visit grok.com before requests and try to read the grok_device_id cookie."
+        },
         "imageCacheMaxMb": {
           "label": "Image Cache Limit (MB)",
           "desc": "0 disables the limit. Applies only to locally proxied media files. When the limit is exceeded, the oldest files are removed until usage falls back to 60% of the limit."

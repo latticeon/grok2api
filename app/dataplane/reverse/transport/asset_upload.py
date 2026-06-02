@@ -16,6 +16,7 @@ from app.platform.logging.logger import logger
 from app.platform.config.snapshot import get_config
 from app.platform.errors import UpstreamError, ValidationError
 from app.dataplane.proxy import get_proxy_runtime
+from app.dataplane.proxy.adapters.device import ensure_device_id
 from app.dataplane.proxy.adapters.headers import build_sso_cookie
 from app.dataplane.proxy.adapters.headers import build_http_headers
 from app.dataplane.proxy.adapters.session import ResettableSession, build_session_kwargs
@@ -119,6 +120,7 @@ async def _upload_file_inner(
 
     proxy = await get_proxy_runtime()
     lease = await proxy.acquire()
+    await ensure_device_id(token, lease=lease)
 
     payload = orjson.dumps({
         "fileName":     filename,
@@ -186,6 +188,7 @@ async def upload_from_input(token: str, file_input: str) -> tuple[str, str]:
         proxy = await get_proxy_runtime()
         lease = await proxy.acquire()
         try:
+            await ensure_device_id(token, lease=lease)
             headers = build_http_headers(token, lease=lease)
             kwargs  = build_session_kwargs(lease=lease)
             async with ResettableSession(**kwargs) as session:

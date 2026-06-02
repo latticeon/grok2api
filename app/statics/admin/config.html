@@ -483,6 +483,7 @@ const SCHEMA_DEF = [
           { key: 'show_search_sources', label: '正文追加信源', labelKey: 'config.schema.fields.showSearchSources.label', type: 'bool', desc: '搜索信源始终以 search_sources 字段输出。此选项控制是否同时在正文末尾追加 ## Sources 段落（兼容文本解析客户端）。', descKey: 'config.schema.fields.showSearchSources.desc' },
           { key: 'custom_instruction', label: '全局附加指令', labelKey: 'config.schema.fields.customInstruction.label', type: 'textarea', desc: '为每次请求注入统一的 system 消息，用于约束模型行为或固定角色设定。', descKey: 'config.schema.fields.customInstruction.desc' },
           { key: 'grok_device_id', label: 'Grok Device ID 池', labelKey: 'config.schema.fields.grokDeviceId.label', type: 'textarea', wide: true, desc: '必填运行参数。可填写多个浏览器真实 grok_device_id，支持换行、逗号或分号分隔；每次请求随机取用一个。', descKey: 'config.schema.fields.grokDeviceId.desc' },
+          { key: 'grok_device_id_auto', label: '自动获取 Device ID', labelKey: 'config.schema.fields.grokDeviceIdAuto.label', type: 'bool', desc: '未配置 Grok Device ID 池时，请求前自动访问 grok.com 并尝试读取 grok_device_id Cookie。', descKey: 'config.schema.fields.grokDeviceIdAuto.desc' },
         ]
       },
       {

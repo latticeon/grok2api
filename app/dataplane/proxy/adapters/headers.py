@@ -4,7 +4,6 @@ All values are sanitized to ASCII-safe Latin-1 before use.
 """
 
 import base64
-import random
 import re
 import string
 import uuid
@@ -16,6 +15,7 @@ from app.platform.logging.logger import logger
 from app.platform.config.snapshot import get_config
 from app.control.proxy.models import ProxyLease
 from app.dataplane.proxy.adapters.profile import ProxyProfile, resolve_proxy_profile
+from app.dataplane.proxy.adapters.device import current_device_id
 
 # ---------------------------------------------------------------------------
 # Unicode → ASCII normalisation map
@@ -174,17 +174,6 @@ def _resolve_profile(lease: ProxyLease | None) -> ProxyProfile:
 # ---------------------------------------------------------------------------
 
 
-def _pick_grok_device_id(value: str | None) -> str:
-    """Pick one configured grok_device_id from comma/semicolon/newline input."""
-    if not value:
-        return ""
-    parts = [part.strip() for part in re.split(r"[;,\r\n]+", str(value))]
-    ids = [part for part in parts if part]
-    if not ids:
-        return ""
-    return random.choice(ids)
-
-
 def _append_cookie_if_missing(cookie: str, name: str, value: str) -> str:
     """Append one cookie pair unless *cookie* already contains that name."""
     if not value or re.search(rf"(?:^|;\s*){re.escape(name)}=", cookie):
@@ -238,7 +227,7 @@ def build_sso_cookie(
     if eff_cookies:
         cookie += f"; {eff_cookies}"
 
-    device_id = _pick_grok_device_id(getattr(profile, "grok_device_id", ""))
+    device_id = current_device_id()
     cookie = _append_cookie_if_missing(cookie, "grok_device_id", device_id)
     return cookie
 

@@ -14,6 +14,7 @@ from app.platform.config.snapshot import get_config
 from app.platform.errors import UpstreamError
 from app.control.proxy.models import ProxyFeedback, ProxyFeedbackKind, ProxyScope, RequestKind
 from app.dataplane.proxy import get_proxy_runtime
+from app.dataplane.proxy.adapters.device import ensure_device_id
 from app.dataplane.proxy.adapters.headers import build_http_headers, build_ws_headers
 from app.dataplane.reverse.protocol.xai_livekit import (
     LIVEKIT_TOKEN_URL,
@@ -47,6 +48,7 @@ async def fetch_livekit_token(
 
     proxy = await get_proxy_runtime()
     lease = await proxy.acquire(scope=ProxyScope.APP, kind=RequestKind.HTTP)
+    await ensure_device_id(token, lease=lease)
 
     payload = build_token_request_payload(
         voice              = voice,
@@ -108,6 +110,7 @@ async def connect_livekit_ws(
 
     proxy = await get_proxy_runtime()
     lease = await proxy.acquire(scope=ProxyScope.APP, kind=RequestKind.WEBSOCKET)
+    await ensure_device_id(token, lease=lease)
 
     url     = build_ws_url(access_token)
     headers = build_ws_headers(token=token, lease=lease)

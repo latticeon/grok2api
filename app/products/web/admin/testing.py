@@ -12,6 +12,7 @@ from pydantic import BaseModel
 from app.control.model.enums import Capability
 from app.control.model import registry as model_registry
 from app.dataplane.proxy import get_proxy_runtime
+from app.dataplane.proxy.adapters.device import ensure_device_id
 from app.dataplane.proxy.adapters.headers import build_http_headers
 from app.dataplane.proxy.adapters.session import ResettableSession, build_session_kwargs
 from app.dataplane.reverse.protocol.xai_chat import (
@@ -91,6 +92,7 @@ async def run_single_token_chat_test(
 
     proxy = await get_proxy_runtime()
     lease = await proxy.acquire()
+    await ensure_device_id(token, lease=lease)
     payload = build_chat_payload(message=message, mode_id=spec.mode_id)
     payload_bytes = orjson.dumps(payload)
     headers = build_http_headers(

@@ -45,6 +45,8 @@ show_search_sources = false
 custom_instruction = ""
 # Grok 设备 ID 池（支持逗号、分号或换行分隔；每次请求随机取用一个）
 grok_device_id = ""
+# 自动访问 grok.com 获取 grok_device_id（未配置设备 ID 时生效）
+grok_device_id_auto = false
 
 [account]
 # 判定账号失效/封禁的关键词，支持换行或逗号分隔。
