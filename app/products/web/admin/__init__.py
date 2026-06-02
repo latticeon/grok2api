@@ -87,6 +87,7 @@ def _sanitize_proxy_config(payload: dict[str, Any]) -> dict[str, Any]:
         for key, strip_spaces in [
             ("user_agent", False),
             ("cf_cookies", False),
+            ("grok_device_id", False),
             ("cf_clearance", True),
         ]:
             if key not in normalized:

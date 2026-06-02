@@ -14,6 +14,7 @@ class ProxyProfile:
     cf_cookies: str = ""
     user_agent: str = ""
     cf_clearance: str = ""
+    grok_device_id: str = ""
     browser: str = ""
 
 
@@ -107,6 +108,7 @@ def resolve_proxy_profile(lease: ProxyLease | None) -> ProxyProfile:
         cf_cookies=cookies,
         user_agent=user_agent,
         cf_clearance=clearance,
+        grok_device_id=cfg.grok_device_id,
         browser=browser,
     )
 

@@ -169,6 +169,29 @@ def _resolve_profile(lease: ProxyLease | None) -> ProxyProfile:
 # ---------------------------------------------------------------------------
 
 
+# ---------------------------------------------------------------------------
+# Cookie helpers
+# ---------------------------------------------------------------------------
+
+
+def _pick_grok_device_id(value: str | None) -> str:
+    """Pick one configured grok_device_id from comma/semicolon/newline input."""
+    if not value:
+        return ""
+    parts = [part.strip() for part in re.split(r"[;,\r\n]+", str(value))]
+    ids = [part for part in parts if part]
+    if not ids:
+        return ""
+    return random.choice(ids)
+
+
+def _append_cookie_if_missing(cookie: str, name: str, value: str) -> str:
+    """Append one cookie pair unless *cookie* already contains that name."""
+    if not value or re.search(rf"(?:^|;\s*){re.escape(name)}=", cookie):
+        return cookie
+    return f"{cookie}; {name}={_sanitize(value, field=name, strip_spaces=True)}"
+
+
 def build_sso_cookie(
     sso_token: str,
     *,
@@ -214,6 +237,9 @@ def build_sso_cookie(
 
     if eff_cookies:
         cookie += f"; {eff_cookies}"
+
+    device_id = _pick_grok_device_id(getattr(profile, "grok_device_id", ""))
+    cookie = _append_cookie_if_missing(cookie, "grok_device_id", device_id)
     return cookie
 
 

@@ -550,6 +550,10 @@
           "label": "Cloudflare Cookies",
           "desc": "Cloudflare 下发的完整 Cookie 字符串，应包含 cf_clearance 等字段。"
         },
+        "grokDeviceId": {
+          "label": "Grok Device ID 池",
+          "desc": "可填写多个浏览器真实 grok_device_id，支持换行、逗号或分号分隔；每次请求随机取用一个。"
+        },
         "flaresolverrUrl": {
           "label": "FlareSolverr URL",
           "desc": "FlareSolverr 实例的 HTTP 服务地址。"

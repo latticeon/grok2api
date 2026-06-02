@@ -11,6 +11,7 @@ class ClearanceConfig:
     cf_cookies: str = ""
     user_agent: str = ""
     cf_clearance: str = ""
+    grok_device_id: str = ""
     browser: str = ""
 
 
@@ -44,6 +45,11 @@ def resolve_clearance_config(cfg: Any | None = None) -> ClearanceConfig:
             cfg,
             "proxy.cf_clearance",
             "proxy.clearance.cf_clearance",
+        ),
+        grok_device_id=first_config_str(
+            cfg,
+            "proxy.grok_device_id",
+            "proxy.clearance.grok_device_id",
         ),
         browser=first_config_str(
             cfg,

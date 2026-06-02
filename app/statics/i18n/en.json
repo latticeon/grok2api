@@ -550,6 +550,10 @@
           "label": "Cloudflare Cookies",
           "desc": "Full cookie string issued by Cloudflare, including fields such as cf_clearance."
         },
+        "grokDeviceId": {
+          "label": "Grok Device ID Pool",
+          "desc": "Multiple real browser grok_device_id values are supported, separated by newlines, commas, or semicolons. One is picked randomly for each request."
+        },
         "flaresolverrUrl": {
           "label": "FlareSolverr URL",
           "desc": "HTTP endpoint for the FlareSolverr instance."
