@@ -4,6 +4,7 @@ All values are sanitized to ASCII-safe Latin-1 before use.
 """
 
 import base64
+import random
 import re
 import string
 import uuid
