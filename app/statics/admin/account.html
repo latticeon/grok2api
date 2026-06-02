@@ -1187,7 +1187,13 @@ async function _adminApi(method, path, body) {
     headers: { ...(body != null && { 'Content-Type': 'application/json' }), Authorization: `Bearer ${key}` },
     ...(body != null && { body: JSON.stringify(body) }),
   });
-  if (!r.ok) { const d = await r.json().catch(() => ({})); throw new Error(d.detail || r.status); }
+  if (!r.ok) {
+    const d = await r.json().catch(() => ({}));
+    const err = new Error(d.detail || d.error || r.status);
+    err.payload = d;
+    err.status = r.status;
+    throw err;
+  }
   return r.json();
 }
 
@@ -1870,7 +1876,14 @@ async function doTokenTest() {
     document.getElementById('token-test-ai-content').textContent = String(d.ai_content || '');
     document.getElementById('token-test-duration').textContent = `${d.duration_ms ?? 0} ms`;
   } catch (e) {
+    const d = e.payload && typeof e.payload === 'object' ? e.payload : {};
     document.getElementById('token-test-status').textContent = `测试失败: ${e.message}`;
+    document.getElementById('token-test-request-body').textContent = JSON.stringify(d.request_body || {}, null, 2);
+    document.getElementById('token-test-request-headers').textContent = JSON.stringify(d.request_headers || {}, null, 2);
+    document.getElementById('token-test-response-body').textContent = String(d.response_body || d.detail || d.error || e.message || '');
+    document.getElementById('token-test-response-headers').textContent = JSON.stringify(d.response_headers || {}, null, 2);
+    document.getElementById('token-test-ai-content').textContent = String(d.ai_content || '');
+    document.getElementById('token-test-duration').textContent = `${d.duration_ms ?? 0} ms`;
     showToast(`测试失败: ${e.message}`, 'error');
   }
 }

@@ -58,6 +58,31 @@ def _chat_content(adapter: StreamAdapter) -> str:
     return "".join(parts)
 
 
+def _test_error_result(
+    *,
+    error: str,
+    status_code: int = 500,
+    request_body: dict | None = None,
+    request_headers: dict[str, str] | None = None,
+    response_body: str = "",
+    response_headers: dict[str, str] | None = None,
+    adapter: StreamAdapter | None = None,
+    start: float | None = None,
+) -> dict[str, Any]:
+    duration_ms = round((perf_counter() - start) * 1000, 2) if start else 0
+    return {
+        "ok": False,
+        "status_code": status_code,
+        "error": error,
+        "request_body": request_body or {},
+        "request_headers": request_headers or {},
+        "response_body": response_body,
+        "response_headers": response_headers or {},
+        "ai_content": _chat_content(adapter) if adapter is not None else "",
+        "duration_ms": duration_ms,
+    }
+
+
 async def _response_body_text(response: Any, *, limit: int = 4000) -> str:
     """Best-effort body reader for curl_cffi streaming responses."""
     try:
@@ -82,6 +107,14 @@ async def run_single_token_chat_test(
     model: str,
     message: str,
 ) -> dict[str, Any]:
+    start = perf_counter()
+    payload: dict[str, Any] = {}
+    headers: dict[str, str] = {}
+    response_headers: dict[str, str] = {}
+    adapter = StreamAdapter()
+    raw_lines: list[str] = []
+    status_code = 0
+
     spec = model_registry.get(model)
     if spec is None or not spec.enabled or not spec.is_chat() or spec.is_auto_model():
         raise ValidationError("请选择一个真实聊天模型", param="model")
@@ -90,27 +123,22 @@ async def run_single_token_chat_test(
         raise ValidationError("Token 不能为空", param="token")
     message = str(message or "").strip() or "你好"
 
-    proxy = await get_proxy_runtime()
-    lease = await proxy.acquire()
-    await ensure_device_id(token, lease=lease)
-    payload = build_chat_payload(message=message, mode_id=spec.mode_id)
-    payload_bytes = orjson.dumps(payload)
-    headers = build_http_headers(
-        token,
-        content_type="application/json",
-        origin="https://grok.com",
-        referer="https://grok.com/",
-        lease=lease,
-    )
-    session_kwargs = build_session_kwargs(lease=lease)
-    timeout_s = get_config().get_float("chat.timeout", 120.0)
-
-    adapter = StreamAdapter()
-    raw_lines: list[str] = []
-    status_code = 0
-    response_headers: dict[str, str] = {}
-    start = perf_counter()
     try:
+        proxy = await get_proxy_runtime()
+        lease = await proxy.acquire()
+        await ensure_device_id(token, lease=lease)
+        payload = build_chat_payload(message=message, mode_id=spec.mode_id)
+        payload_bytes = orjson.dumps(payload)
+        headers = build_http_headers(
+            token,
+            content_type="application/json",
+            origin="https://grok.com",
+            referer="https://grok.com/",
+            lease=lease,
+        )
+        session_kwargs = build_session_kwargs(lease=lease)
+        timeout_s = get_config().get_float("chat.timeout", 120.0)
+
         async with ResettableSession(**session_kwargs) as session:
             response = await session.post(
                 CHAT,
@@ -146,18 +174,27 @@ async def run_single_token_chat_test(
                 if ended:
                     break
     except UpstreamError as exc:
-        duration_ms = round((perf_counter() - start) * 1000, 2)
-        return {
-            "ok": False,
-            "status_code": getattr(exc, "status", status_code) or status_code,
-            "error": str(exc),
-            "request_body": payload,
-            "request_headers": headers,
-            "response_body": "\n".join(raw_lines),
-            "response_headers": response_headers,
-            "ai_content": _chat_content(adapter),
-            "duration_ms": duration_ms,
-        }
+        return _test_error_result(
+            error=str(exc),
+            status_code=getattr(exc, "status", status_code) or status_code,
+            request_body=payload,
+            request_headers=headers,
+            response_body="\n".join(raw_lines),
+            response_headers=response_headers,
+            adapter=adapter,
+            start=start,
+        )
+    except Exception as exc:
+        return _test_error_result(
+            error=f"{type(exc).__name__}: {exc}",
+            status_code=status_code or 500,
+            request_body=payload,
+            request_headers=headers,
+            response_body="\n".join(raw_lines),
+            response_headers=response_headers,
+            adapter=adapter,
+            start=start,
+        )
 
     duration_ms = round((perf_counter() - start) * 1000, 2)
     ai_content = _chat_content(adapter)
